@@ -28,7 +28,9 @@ class CloudflareClient:
     def _check_client_capabilities(self):
         """Check the capabilities of the Cloudflare API client to determine which methods to use."""
         self.has_zones_list = hasattr(self.cf.zones, 'list')
-        logger.debug(f"Cloudflare client capabilities checked", extra={"has_zones_list": self.has_zones_list})
+        self.has_dns_records = hasattr(self.cf.zones, 'dns_records')
+        logger.debug(f"Cloudflare client capabilities checked", 
+                    extra={"has_zones_list": self.has_zones_list, "has_dns_records": self.has_dns_records})
 
     def get_zone_id(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -268,15 +270,36 @@ class CloudflareClient:
             records_result = None
             methods_tried = []
 
-            # Method 1: Try directly with zone_id
-            try:
-                methods_tried.append("dns_records.get(zone_id)")
-                records_result = self.cf.zones.dns_records.get(zone_id)
-                logger.debug(f"Successfully retrieved DNS records using dns_records.get(zone_id)")
-            except Exception as e1:
-                logger.debug(f"Failed to get DNS records using direct method", 
-                           extra={"error": str(e1), "error_type": type(e1).__name__})
-            
+            # Method 1: Try directly with Zone object's dns_records property
+            if self.has_dns_records:
+                try:
+                    methods_tried.append("zones.dns_records.get(zone_id)")
+                    records_result = self.cf.zones.dns_records.get(zone_id)
+                    logger.debug(f"Successfully retrieved DNS records using dns_records.get(zone_id)")
+                except Exception as e1:
+                    logger.debug(f"Failed to get DNS records using direct method", 
+                               extra={"error": str(e1), "error_type": type(e1).__name__})
+
+            # Method 2: Try using the zones[id].dns_records.list() method
+            if not records_result:
+                try:
+                    methods_tried.append("zones[zone_id].dns_records.list()")
+                    records_result = self.cf.zones[zone_id].dns_records.list()
+                    logger.debug(f"Successfully retrieved DNS records using zones[zone_id].dns_records.list()")
+                except Exception as e2:
+                    logger.debug(f"Failed to get DNS records using zone indexing method", 
+                                extra={"error": str(e2), "error_type": type(e2).__name__})
+
+            # Method 3: Try new API format: cf.zones.dns_records.list(zone_id=zone_id)
+            if not records_result:
+                try:
+                    methods_tried.append("zones.dns_records.list(zone_id=zone_id)")
+                    records_result = self.cf.zones.dns_records.list(zone_id=zone_id)
+                    logger.debug(f"Successfully retrieved DNS records using zones.dns_records.list(zone_id=zone_id)")
+                except Exception as e3:
+                    logger.debug(f"Failed to get DNS records using newer API method", 
+                                extra={"error": str(e3), "error_type": type(e3).__name__})
+
             if not records_result:
                 logger.error(f"Could not retrieve DNS records with any method", 
                            extra={"methods_tried": methods_tried, "zone_id": zone_id})
@@ -427,24 +450,24 @@ class CloudflareClient:
             methods_tried = []
             result = None
 
-            # Method 1: Try with **record_data
+            # Method 1: Try with new API format
             try:
-                methods_tried.append("dns_records.post(zone_id, **record_data)")
-                result = self.cf.zones.dns_records.post(zone_id, **record_data)
-                logger.debug(f"Successfully created DNS record using dns_records.post(zone_id, **record_data)")
+                methods_tried.append("zones.dns_records.post(zone_id=zone_id, data=record_data)")
+                result = self.cf.zones.dns_records.post(zone_id=zone_id, data=record_data)
+                logger.debug(f"Successfully created DNS record using zones.dns_records.post(zone_id=zone_id, data=record_data)")
                 logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
-                logger.debug(f"Failed to create DNS record using **record_data method", 
+                logger.debug(f"Failed to create DNS record using new API method", 
                             extra={"error": str(e1), "error_type": type(e1).__name__})
                 
-                # Method 2: Try with data=record_data
+                # Method 2: Try with zones[zone_id].dns_records.create()
                 try:
-                    methods_tried.append("dns_records.post(zone_id, data=record_data)")
-                    result = self.cf.zones.dns_records.post(zone_id, data=record_data)
-                    logger.debug(f"Successfully created DNS record using dns_records.post(zone_id, data=record_data)")
+                    methods_tried.append("zones[zone_id].dns_records.create()")
+                    result = self.cf.zones[zone_id].dns_records.create(data=record_data)
+                    logger.debug(f"Successfully created DNS record using zones[zone_id].dns_records.create()")
                     logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
-                    logger.debug(f"Failed to create DNS record using data=record_data method", 
+                    logger.debug(f"Failed to create DNS record using zone indexing method", 
                                 extra={"error": str(e2), "error_type": type(e2).__name__})
 
             if not result:
@@ -573,24 +596,24 @@ class CloudflareClient:
             methods_tried = []
             result = None
 
-            # Method 1: Try with **record_data
+            # Method 1: Try with new API format
             try:
-                methods_tried.append("dns_records.put(zone_id, record_id, **record_data)")
-                result = self.cf.zones.dns_records.put(zone_id, record_id, **record_data)
-                logger.debug(f"Successfully updated DNS record using dns_records.put(zone_id, record_id, **record_data)")
+                methods_tried.append("zones.dns_records.put(zone_id=zone_id, identifier=record_id, data=record_data)")
+                result = self.cf.zones.dns_records.put(zone_id=zone_id, identifier=record_id, data=record_data)
+                logger.debug(f"Successfully updated DNS record using new API method")
                 logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
-                logger.debug(f"Failed to update DNS record using **record_data method", 
+                logger.debug(f"Failed to update DNS record using new API method", 
                             extra={"error": str(e1), "error_type": type(e1).__name__})
                 
-                # Method 2: Try with data=record_data
+                # Method 2: Try with zones[zone_id].dns_records[record_id].update()
                 try:
-                    methods_tried.append("dns_records.put(zone_id, record_id, data=record_data)")
-                    result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
-                    logger.debug(f"Successfully updated DNS record using dns_records.put(zone_id, record_id, data=record_data)")
+                    methods_tried.append("zones[zone_id].dns_records[record_id].update()")
+                    result = self.cf.zones[zone_id].dns_records[record_id].update(data=record_data)
+                    logger.debug(f"Successfully updated DNS record using zone indexing method")
                     logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
-                    logger.debug(f"Failed to update DNS record using data=record_data method", 
+                    logger.debug(f"Failed to update DNS record using zone indexing method", 
                                 extra={"error": str(e2), "error_type": type(e2).__name__})
 
             if not result:
@@ -641,8 +664,32 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "record_id": record_id},
             )
 
-            # Simply call delete method - should be consistent across versions
-            result = self.cf.zones.dns_records.delete(zone_id, record_id)
+            # Try multiple approaches to delete the DNS record
+            methods_tried = []
+            result = None
+
+            # Method 1: Try with new API format
+            try:
+                methods_tried.append("zones.dns_records.delete(zone_id=zone_id, identifier=record_id)")
+                result = self.cf.zones.dns_records.delete(zone_id=zone_id, identifier=record_id)
+                logger.debug(f"Successfully deleted DNS record using new API method")
+            except Exception as e1:
+                logger.debug(f"Failed to delete DNS record using new API method", 
+                            extra={"error": str(e1), "error_type": type(e1).__name__})
+                
+                # Method 2: Try with zones[zone_id].dns_records[record_id].delete()
+                try:
+                    methods_tried.append("zones[zone_id].dns_records[record_id].delete()")
+                    result = self.cf.zones[zone_id].dns_records[record_id].delete()
+                    logger.debug(f"Successfully deleted DNS record using zone indexing method")
+                except Exception as e2:
+                    logger.debug(f"Failed to delete DNS record using zone indexing method", 
+                                extra={"error": str(e2), "error_type": type(e2).__name__})
+
+            if not result:
+                logger.error(f"Could not delete DNS record with any method", 
+                            extra={"methods_tried": methods_tried, "zone_id": zone_id, "record_id": record_id})
+                return False
 
             logger.debug(
                 f"Deleted DNS record successfully",
