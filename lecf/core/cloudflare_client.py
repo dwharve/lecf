@@ -52,59 +52,49 @@ class CloudflareClient:
             logger.debug(f"Making direct API request", 
                        extra={"method": method, "path": path, "params": params})
             
-            # Try using the internal _request method if it exists
-            if self.has_request:
-                # The Cloudflare client doesn't accept 'method' as a parameter - it uses different methods
-                # for different HTTP verbs, and the method name is inferred from the function name.
-                # So we need to call the appropriate method based on the HTTP verb.
-                if method.lower() == 'get':
-                    result = self.cf._request(url=path, params=params)
-                    logger.debug(f"Direct API GET request successful")
-                    return result
-                elif method.lower() == 'post':
-                    result = self.cf._request(url=path, json_data=data, params=params)
-                    logger.debug(f"Direct API POST request successful")
-                    return result
-                elif method.lower() == 'put':
-                    # Some clients might not support PUT directly
-                    try:
-                        result = self.cf._request(url=path, json_data=data, params=params, method='put')
-                        logger.debug(f"Direct API PUT request successful")
-                        return result
-                    except TypeError:
-                        # If 'method' param not supported, try another approach
-                        logger.debug(f"PUT method not directly supported, attempting to use alternative")
-                        # Try different function name pattern if available
-                        if hasattr(self.cf, '_request_put'):
-                            result = self.cf._request_put(url=path, json_data=data, params=params)
-                            logger.debug(f"Direct API PUT request successful via _request_put")
-                            return result
-                        else:
-                            logger.error(f"Client does not support PUT requests")
-                            return None
-                elif method.lower() == 'delete':
-                    # Some clients might not support DELETE directly
-                    try:
-                        result = self.cf._request(url=path, params=params, method='delete')
-                        logger.debug(f"Direct API DELETE request successful")
-                        return result
-                    except TypeError:
-                        # If 'method' param not supported, try another approach
-                        logger.debug(f"DELETE method not directly supported, attempting to use alternative")
-                        # Try different function name pattern if available
-                        if hasattr(self.cf, '_request_delete'):
-                            result = self.cf._request_delete(url=path, params=params)
-                            logger.debug(f"Direct API DELETE request successful via _request_delete")
-                            return result
-                        else:
-                            logger.error(f"Client does not support DELETE requests")
-                            return None
-                else:
-                    logger.error(f"Unsupported HTTP method", extra={"method": method})
-                    return None
+            # Import requests if needed
+            import requests
+            
+            # Get the authentication token
+            cf_config = config.get_cloudflare_config(config.APP_CONFIG)
+            token = cf_config["api_token"]
+            
+            # Set up headers with authentication
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json',
+            }
+            
+            # Cloudflare API base URL
+            base_url = "https://api.cloudflare.com/client/v4"
+            
+            # Make the request using the requests library directly
+            url = f"{base_url}{path}"
+            logger.debug(f"Making direct HTTP request to Cloudflare API", 
+                       extra={"method": method, "url": url})
+            
+            if method.lower() == 'get':
+                response = requests.get(url, headers=headers, params=params)
+            elif method.lower() == 'post':
+                response = requests.post(url, headers=headers, params=params, json=data)
+            elif method.lower() == 'put':
+                response = requests.put(url, headers=headers, params=params, json=data)
+            elif method.lower() == 'delete':
+                response = requests.delete(url, headers=headers, params=params)
             else:
-                logger.error(f"Client does not support direct API requests")
+                logger.error(f"Unsupported HTTP method", extra={"method": method})
                 return None
+            
+            # Check if request was successful
+            if response.status_code >= 200 and response.status_code < 300:
+                logger.debug(f"Successful API response", 
+                           extra={"status_code": response.status_code})
+                return response.json()
+            else:
+                logger.error(f"API request failed", 
+                           extra={"status_code": response.status_code, "response": response.text})
+                return None
+            
         except Exception as e:
             logger.error(f"Direct API request failed", 
                         extra={"method": method, "path": path, "error": str(e), "error_type": type(e).__name__})
