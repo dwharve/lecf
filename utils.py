@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from dotenv import load_dotenv
 from pythonjsonlogger import jsonlogger
@@ -24,8 +25,8 @@ def setup_logging(name: str = None) -> logging.Logger:
     if logger.handlers:
         logger.handlers.clear()
     
-    # Configure console handler
-    console_handler = logging.StreamHandler()
+    # Configure console handler to use stdout instead of stderr
+    console_handler = logging.StreamHandler(sys.stdout)
     formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s %(message)s')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
