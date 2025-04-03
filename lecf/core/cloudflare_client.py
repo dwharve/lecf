@@ -1,6 +1,7 @@
 """Cloudflare API client for interacting with Cloudflare services."""
 
 from typing import Any, Dict, List, Optional, Tuple
+import os
 
 import cloudflare
 from cloudflare import Client
@@ -9,7 +10,24 @@ from lecf.utils import config, logger
 
 
 class CloudflareClient:
-    """Shared Cloudflare API client for both certificate and DDNS management."""
+    """
+    Shared Cloudflare API client for both certificate and DDNS management.
+    
+    This class uses the official Cloudflare Python SDK (cloudflare) to interact
+    with the Cloudflare API. It provides methods for managing DNS records and
+    zones using high-level SDK interfaces instead of direct API calls.
+    
+    Configuration:
+        - The client can be initialized with an API token directly or will use
+          the configured token from environment variables or config file.
+        - Set CLOUDFLARE_USE_CREDENTIALS_FILE=true to create a credentials file
+          at ~/.secrets/cloudflare.ini which will be used by the SDK.
+    
+    Usage:
+        client = CloudflareClient()
+        zone_id, zone_name = client.get_zone_id("example.com")
+        records = client.get_dns_records(zone_id, {"type": "A"})
+    """
 
     def __init__(self, api_token: str = None):
         """
@@ -19,7 +37,33 @@ class CloudflareClient:
             api_token: Cloudflare API token. If None, fetched from config.
         """
         cf_config = config.get_cloudflare_config(config.APP_CONFIG)
-        self.cf = Client(api_token=api_token or cf_config["api_token"])
+        
+        # Check if we should create credentials file for the SDK
+        use_cred_file = config.get_env_bool("CLOUDFLARE_USE_CREDENTIALS_FILE", False)
+        cred_file_path = None
+        
+        if use_cred_file:
+            # Create credentials file in ~/.secrets/cloudflare.ini
+            home_dir = os.path.expanduser("~")
+            secrets_dir = os.path.join(home_dir, ".secrets")
+            cred_file_path = os.path.join(secrets_dir, "cloudflare.ini")
+            
+            # Create directory if it doesn't exist
+            if not os.path.exists(secrets_dir):
+                os.makedirs(secrets_dir, exist_ok=True)
+                
+            # Create/update credentials file
+            with open(cred_file_path, "w") as f:
+                f.write("[cloudflare]\n")
+                f.write(f"token = {api_token or cf_config['api_token']}\n")
+                
+            logger.debug(f"Created Cloudflare credentials file at {cred_file_path}")
+            
+            # Create client with credentials file
+            self.cf = Client()
+        else:
+            # Create client with direct token
+            self.cf = Client(api_token=api_token or cf_config["api_token"])
         
         logger.debug("CloudflareClient initialized")
 
@@ -28,6 +72,9 @@ class CloudflareClient:
     ) -> Any:
         """
         Make a direct API request to Cloudflare.
+        
+        This method is maintained for backward compatibility but new code should
+        use the SDK interfaces.
 
         Args:
             method: HTTP method (get, post, put, delete)
@@ -107,13 +154,20 @@ class CloudflareClient:
 
     def get_zone_id(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
         """
-        Get zone ID for a domain.
+        Get zone ID for a domain using the CloudflareSDK.
+        
+        Uses the zones.list method from the Cloudflare SDK to retrieve zone information
+        based on the domain name. The domain is parsed to extract the root domain (zone name).
 
         Args:
-            domain: The domain to get the zone for
+            domain: The domain to get the zone for (can be a subdomain)
 
         Returns:
             Tuple of (zone_id, zone_name) or (None, None) if not found
+            
+        Example:
+            zone_id, zone_name = client.get_zone_id("subdomain.example.com")
+            # Returns the zone ID and name for "example.com"
         """
         # Extract root domain (zone name)
         parts = domain.split(".")
@@ -129,25 +183,21 @@ class CloudflareClient:
         )
 
         try:
-            # Use direct API call to get zones
-            path = "/zones"
-            params = {"name": zone_name}
-            response = self._direct_api_request("get", path, params=params)
-
-            if response and "result" in response:
-                zones = response["result"]
-                if zones:
-                    zone = zones[0]
-                    zone_id = zone["id"]
-                    zone_name = zone["name"]
-                    logger.debug(
-                        f"Found zone",
-                        extra={
-                            "zone_id": zone_id,
-                            "zone_name": zone_name,
-                        },
-                    )
-                    return zone_id, zone_name
+            # Use SDK to get zones
+            zones = self.cf.zones.list(params={"name": zone_name})
+            
+            if zones and len(zones) > 0:
+                zone = zones[0]
+                zone_id = zone["id"]
+                zone_name = zone["name"]
+                logger.debug(
+                    f"Found zone",
+                    extra={
+                        "zone_id": zone_id,
+                        "zone_name": zone_name,
+                    },
+                )
+                return zone_id, zone_name
 
             logger.error(
                 f"No zone found for domain",
@@ -169,14 +219,25 @@ class CloudflareClient:
 
     def get_dns_records(self, zone_id: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
-        Get DNS records for a zone.
+        Get DNS records for a zone using the Cloudflare SDK.
+        
+        Uses the dns.records.list method from the SDK to retrieve DNS records
+        for a specified zone ID with optional filtering parameters.
 
         Args:
             zone_id: Cloudflare zone ID
-            params: Optional filtering parameters
+            params: Optional filtering parameters, such as:
+                   - type: Record type (A, AAAA, CNAME, etc.)
+                   - name: Record name (e.g., "subdomain.example.com")
+                   - content: Record content (e.g., IP address)
+                   - per_page: Number of records per page
+                   - page: Page number
 
         Returns:
             List of DNS records
+            
+        Example:
+            records = client.get_dns_records(zone_id, {"type": "A", "name": "www.example.com"})
         """
         try:
             logger.debug(
@@ -184,20 +245,14 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "params": params},
             )
 
-            # Use direct API call
-            path = f"/zones/{zone_id}/dns_records"
-            response = self._direct_api_request("get", path, params=params)
-
-            if response and "result" in response:
-                records = response["result"]
-                logger.debug(
-                    f"Found DNS records",
-                    extra={"zone_id": zone_id, "count": len(records)},
-                )
-                return records
-
-            logger.error(f"Failed to get DNS records", extra={"zone_id": zone_id})
-            return []
+            # Use SDK to get DNS records
+            records = self.cf.dns.records.list(zone_id, params=params)
+            
+            logger.debug(
+                f"Found DNS records",
+                extra={"zone_id": zone_id, "count": len(records)},
+            )
+            return records
 
         except Exception as e:
             logger.error(
@@ -208,14 +263,32 @@ class CloudflareClient:
 
     def create_dns_record(self, zone_id: str, record_data: Dict[str, Any]) -> Optional[str]:
         """
-        Create a DNS record.
+        Create a DNS record using the Cloudflare SDK.
+        
+        Uses the dns.records.create method from the SDK to create a new DNS record
+        in the specified zone.
 
         Args:
             zone_id: Cloudflare zone ID
-            record_data: Record data to create
+            record_data: Record data to create, including:
+                         - type: Record type (A, AAAA, CNAME, etc.)
+                         - name: Record name (e.g., "subdomain.example.com")
+                         - content: Record content (e.g., IP address)
+                         - ttl: Time to live in seconds (1 for automatic)
+                         - proxied: Whether the record is proxied (default: False)
 
         Returns:
             Record ID if successful, None otherwise
+            
+        Example:
+            record_data = {
+                "type": "A",
+                "name": "www.example.com",
+                "content": "192.0.2.1",
+                "ttl": 1,
+                "proxied": False
+            }
+            record_id = client.create_dns_record(zone_id, record_data)
         """
         try:
             record_name = record_data.get("name", "unknown")
@@ -231,12 +304,11 @@ class CloudflareClient:
                 },
             )
 
-            # Use direct API call
-            path = f"/zones/{zone_id}/dns_records"
-            response = self._direct_api_request("post", path, data=record_data)
-
-            if response and "result" in response and "id" in response["result"]:
-                record_id = response["result"]["id"]
+            # Use SDK to create DNS record
+            response = self.cf.dns.records.create(zone_id, data=record_data)
+            
+            if response and "id" in response:
+                record_id = response["id"]
                 logger.debug(
                     f"Successfully created DNS record",
                     extra={"record_id": record_id},
@@ -263,15 +335,29 @@ class CloudflareClient:
 
     def update_dns_record(self, zone_id: str, record_id: str, record_data: Dict[str, Any]) -> bool:
         """
-        Update a DNS record.
+        Update a DNS record using the Cloudflare SDK.
+        
+        Uses the dns.records.update method from the SDK to update an existing DNS record.
 
         Args:
             zone_id: Cloudflare zone ID
             record_id: DNS record ID
-            record_data: Record data to update
+            record_data: Record data to update, which may include:
+                        - type: Record type (A, AAAA, CNAME, etc.)
+                        - name: Record name (e.g., "subdomain.example.com")
+                        - content: Record content (e.g., IP address)
+                        - ttl: Time to live in seconds (1 for automatic)
+                        - proxied: Whether the record is proxied
 
         Returns:
             True if successful, False otherwise
+            
+        Example:
+            updated = client.update_dns_record(
+                zone_id, 
+                record_id, 
+                {"content": "192.0.2.2", "ttl": 1}
+            )
         """
         try:
             record_name = record_data.get("name", "unknown")
@@ -289,11 +375,10 @@ class CloudflareClient:
                 },
             )
 
-            # Use direct API call
-            path = f"/zones/{zone_id}/dns_records/{record_id}"
-            response = self._direct_api_request("put", path, data=record_data)
-
-            if response and "success" in response and response["success"]:
+            # Use SDK to update DNS record
+            response = self.cf.dns.records.update(zone_id, record_id, data=record_data)
+            
+            if response:
                 logger.debug(f"Successfully updated DNS record")
                 return True
 
@@ -318,7 +403,9 @@ class CloudflareClient:
 
     def delete_dns_record(self, zone_id: str, record_id: str) -> bool:
         """
-        Delete a DNS record.
+        Delete a DNS record using the Cloudflare SDK.
+        
+        Uses the dns.records.delete method from the SDK to remove an existing DNS record.
 
         Args:
             zone_id: Cloudflare zone ID
@@ -326,6 +413,9 @@ class CloudflareClient:
 
         Returns:
             True if successful, False otherwise
+            
+        Example:
+            deleted = client.delete_dns_record(zone_id, record_id)
         """
         try:
             logger.debug(
@@ -333,11 +423,10 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "record_id": record_id},
             )
 
-            # Use direct API call
-            path = f"/zones/{zone_id}/dns_records/{record_id}"
-            response = self._direct_api_request("delete", path)
-
-            if response and "success" in response and response["success"]:
+            # Use SDK to delete DNS record
+            response = self.cf.dns.records.delete(zone_id, record_id)
+            
+            if response:
                 logger.debug(f"Successfully deleted DNS record")
                 return True
 
