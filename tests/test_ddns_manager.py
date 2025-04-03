@@ -1,7 +1,7 @@
 """Tests for the DDNS Manager."""
 
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from lecf.managers.ddns import DdnsManager
 
@@ -131,3 +131,82 @@ class TestDdnsManager:
             f"DDNS update completed",
             extra={"updated": 5, "errors": 0, "domains": 2},
         )
+
+    @patch("lecf.managers.ddns.logger")
+    def test_update_dns_record(self, mock_logger):
+        """Test the update_dns_record method with Cloudflare SDK objects."""
+        # Mock Cloudflare client
+        self.manager.cloudflare = mock_cf = Mock()
+
+        # Mock zone ID lookup
+        mock_cf.get_zone_id.return_value = ("zone123", "example.com")
+
+        # Create a mock DNS record object with attribute-style access
+        mock_record = Mock()
+        mock_record.id = "record123"
+        mock_record.content = "192.168.0.1"  # Current IP
+        mock_record.proxied = True
+
+        # Mock DNS records response - return a list containing our mock object
+        mock_cf.get_dns_records.return_value = [mock_record]
+
+        # Mock successful update
+        mock_cf.update_dns_record.return_value = True
+
+        # Test updating an existing record
+        result = self.manager.update_dns_record("example.com", "@", "A", "192.168.0.2")
+
+        # Verify zone_id lookup
+        mock_cf.get_zone_id.assert_called_with("example.com")
+
+        # Verify get_dns_records call
+        mock_cf.get_dns_records.assert_called_with("zone123", {"name": "example.com", "type": "A"})
+
+        # Verify the record was updated with correct parameters
+        mock_cf.update_dns_record.assert_called_with(
+            "zone123",
+            "record123",
+            {
+                "name": "example.com",
+                "type": "A",
+                "content": "192.168.0.2",
+                "ttl": 60,
+                "proxied": True,  # Should maintain the existing proxied status
+            },
+        )
+
+        # Verify result
+        assert result is True
+
+        # Test when IP hasn't changed
+        mock_record.content = "192.168.0.2"  # Same as new IP
+        result = self.manager.update_dns_record("example.com", "@", "A", "192.168.0.2")
+        assert result is True
+        # Update shouldn't be called again since IP is the same
+        mock_cf.update_dns_record.assert_called_once()
+
+        # Test creating a new record when none exists
+        mock_cf.get_dns_records.return_value = []  # No existing records
+        mock_cf.create_dns_record.return_value = "new_record_id"
+
+        result = self.manager.update_dns_record("example.com", "www", "A", "192.168.0.2")
+
+        # Verify create DNS record was called with correct parameters
+        mock_cf.create_dns_record.assert_called_with(
+            "zone123",
+            {
+                "name": "www.example.com",
+                "type": "A",
+                "content": "192.168.0.2",
+                "ttl": 60,
+                "proxied": False,  # New records default to not proxied
+            },
+        )
+
+        # Verify result
+        assert result is True
+
+        # Test error handling
+        mock_cf.get_zone_id.return_value = (None, None)  # Zone not found
+        result = self.manager.update_dns_record("nonexistent.com", "@", "A", "192.168.0.2")
+        assert result is False

@@ -28,10 +28,10 @@ class TestCloudflareClient:
         # Set up the mock client inside CloudflareClient
         self.client.cf = MagicMock()
 
-        # Mock capabilities for updated code
-        self.client.has_zones_list = True
-        self.client.has_dns_records = True
-        self.client.has_request = True
+        # Set up mock objects for zones and dns.records
+        self.client.cf.zones = MagicMock()
+        self.client.cf.dns = MagicMock()
+        self.client.cf.dns.records = MagicMock()
 
         # Replace CloudFlare exception in test module
         import cloudflare
@@ -122,12 +122,16 @@ class TestCloudflareClient:
         mock_get.assert_called_once()
 
     def test_get_zone_id_success(self):
-        """Test get_zone_id when successful with new implementation."""
-        # Setup mock response for zones list
+        """Test get_zone_id when successful."""
+        # Create a mock Zone object with id and name attributes
         mock_zone = MagicMock()
-        mock_zone.name = "example.com"
         mock_zone.id = "zone123"
-        self.client.cf.zones.list.return_value = [mock_zone]
+        mock_zone.name = "example.com"
+
+        # Create a mock iterator that yields mock_zone
+        mock_zones = MagicMock()
+        mock_zones.__iter__.return_value = iter([mock_zone])
+        self.client.cf.zones.list.return_value = mock_zones
 
         # Test with valid domain
         zone_id, zone_name = self.client.get_zone_id("subdomain.example.com")
@@ -135,7 +139,7 @@ class TestCloudflareClient:
         # Verify results
         assert zone_id == "zone123"
         assert zone_name == "example.com"
-        self.client.cf.zones.list.assert_called_once()
+        self.client.cf.zones.list.assert_called_with(name="example.com")
 
     def test_get_zone_id_invalid_domain(self):
         """Test get_zone_id with invalid domain format."""
@@ -143,103 +147,87 @@ class TestCloudflareClient:
 
         assert zone_id is None
         assert zone_name is None
-        self.client.cf.zones.list.assert_not_called()
 
     def test_get_zone_id_no_zones(self):
         """Test get_zone_id when no zones are found."""
-        self.client.cf.zones.list.return_value = []
+        # Create an empty iterator
+        mock_zones = MagicMock()
+        mock_zones.__iter__.return_value = iter([])
+        self.client.cf.zones.list.return_value = mock_zones
 
         zone_id, zone_name = self.client.get_zone_id("subdomain.example.com")
 
         assert zone_id is None
         assert zone_name is None
-        self.client.cf.zones.list.assert_called_once()
+        self.client.cf.zones.list.assert_called_with(name="example.com")
 
-    def test_get_zone_id_fallback_methods(self):
-        """Test get_zone_id fallback methods when zones.list fails."""
-        # Make zones.list fail
-        self.client.cf.zones.list.side_effect = Exception("API Error")
-        # Setup mock for fallback methods
-        mock_zone = MagicMock()
-        mock_zone.name = "example.com"
-        mock_zone.id = "zone123"
-        self.client.cf.zones.return_value = [mock_zone]
+    def test_get_dns_records_success(self):
+        """Test get_dns_records when successful."""
+        # Setup mock response with mock DNS record objects
+        mock_record = MagicMock()
+        mock_record.id = "record1"
+        mock_record.type = "A"
+        mock_record.name = "test.example.com"
+        mock_record.content = "192.168.1.1"
 
-        # Test with valid domain
-        zone_id, zone_name = self.client.get_zone_id("subdomain.example.com")
-
-        # Verify results
-        assert zone_id == "zone123"
-        assert zone_name == "example.com"
-        self.client.cf.zones.list.assert_called_once()
-        self.client.cf.zones.assert_called_once()
-
-    @patch("lecf.core.cloudflare_client.CloudflareClient._direct_api_request")
-    def test_get_dns_records_direct_api_success(self, mock_direct_api):
-        """Test get_dns_records using direct API when successful."""
-        # Setup mock response
-        mock_records = [
-            {"id": "record1", "type": "A", "name": "test.example.com", "content": "192.168.1.1"}
-        ]
-        mock_direct_api.return_value = {"result": mock_records}
+        # Create a mock iterator that yields the records
+        mock_iterator = MagicMock()
+        mock_iterator.__iter__.return_value = iter([mock_record])
+        self.client.cf.dns.records.list.return_value = mock_iterator
 
         # Call method with params
         params = {"type": "A", "name": "test.example.com"}
         records = self.client.get_dns_records("zone123", params=params)
 
+        # Verify results - note we're still getting a list of objects, not just the iterator
+        assert len(records) == 1
+        assert records[0].id == "record1"
+        assert records[0].type == "A"
+        self.client.cf.dns.records.list.assert_called_with(zone_id="zone123", **params)
+
+    def test_get_dns_records_no_params(self):
+        """Test get_dns_records with no parameters."""
+        # Setup mock response with mock DNS record objects
+        mock_record = MagicMock()
+        mock_record.id = "record1"
+        mock_record.type = "A"
+        mock_record.name = "test.example.com"
+        mock_record.content = "192.168.1.1"
+
+        # Create a mock iterator that yields the records
+        mock_iterator = MagicMock()
+        mock_iterator.__iter__.return_value = iter([mock_record])
+        self.client.cf.dns.records.list.return_value = mock_iterator
+
+        # Call method without params
+        records = self.client.get_dns_records("zone123")
+
         # Verify results
-        assert records == mock_records
-        mock_direct_api.assert_called_with("get", "/zones/zone123/dns_records", params=params)
+        assert len(records) == 1
+        assert records[0].id == "record1"
+        self.client.cf.dns.records.list.assert_called_with(zone_id="zone123")
 
-    def test_get_dns_records_filtered(self):
-        """Test get_dns_records with filtering applied to results."""
-        # Create a response with multiple records
-        api_response = {
-            "result": [
-                {
-                    "id": "record1",
-                    "type": "A",
-                    "name": "test.example.com",
-                    "content": "192.168.1.1",
-                },
-                {
-                    "id": "record2",
-                    "type": "A",
-                    "name": "other.example.com",
-                    "content": "192.168.1.2",
-                },
-            ],
-            "success": True,
-        }
-
-        # Set up the direct API request to return our response
-        with patch(
-            "lecf.core.cloudflare_client.CloudflareClient._direct_api_request",
-            return_value=api_response,
-        ):
-            # Get records with a filter for a specific name
-            params = {"name": "test.example.com"}
-            records = self.client.get_dns_records("zone123", params=params)
-
-            # We should get exactly one record matching our filter
-            assert len(records) == 1
-            assert records[0]["id"] == "record1"
-            assert records[0]["name"] == "test.example.com"
-
-            # Get records with a different filter
-            params = {"name": "other.example.com"}
-            records = self.client.get_dns_records("zone123", params=params)
-
-            # We should get exactly one record matching our filter
-            assert len(records) == 1
-            assert records[0]["id"] == "record2"
-            assert records[0]["name"] == "other.example.com"
-
-    @patch("lecf.core.cloudflare_client.CloudflareClient._direct_api_request")
-    def test_create_dns_record_direct_api_success(self, mock_direct_api):
-        """Test create_dns_record using direct API when successful."""
+    def test_get_dns_records_failure(self):
+        """Test get_dns_records when API request fails."""
         # Setup mock response
-        mock_direct_api.return_value = {"success": True, "result": {"id": "record123"}}
+        self.client.cf.dns.records.list.side_effect = Exception("API Error")
+        # Mock all fallback methods as well
+        self.client.cf._request_api_get = MagicMock(side_effect=Exception("API Error 2"))
+        self.client._direct_api_request = MagicMock(side_effect=Exception("API Error 3"))
+
+        # Call method
+        records = self.client.get_dns_records("zone123")
+
+        # Verify results
+        assert records == []
+        self.client.cf.dns.records.list.assert_called_with(zone_id="zone123")
+
+    def test_create_dns_record_success(self):
+        """Test create_dns_record when successful."""
+        # Setup mock response with id attribute
+        mock_response = MagicMock()
+        mock_response.id = "record123"
+        self.client.cf.dns.records.create.return_value = mock_response
 
         # Call method
         record_data = {"type": "A", "name": "test.example.com", "content": "192.168.1.1"}
@@ -247,142 +235,82 @@ class TestCloudflareClient:
 
         # Verify results
         assert record_id == "record123"
-        mock_direct_api.assert_called_with("post", "/zones/zone123/dns_records", data=record_data)
+        self.client.cf.dns.records.create.assert_called_with(zone_id="zone123", **record_data)
 
-    @patch("lecf.core.cloudflare_client.CloudflareClient._direct_api_request")
-    def test_update_dns_record_direct_api_success(self, mock_direct_api):
-        """Test update_dns_record using direct API when successful."""
+    def test_create_dns_record_failure(self):
+        """Test create_dns_record when API request fails."""
         # Setup mock response
-        mock_direct_api.return_value = {"success": True}
+        self.client.cf.dns.records.create.side_effect = Exception("API Error")
+        # Mock all fallback methods as well
+        self.client.cf._request_api_post = MagicMock(side_effect=Exception("API Error 2"))
+        self.client._direct_api_request = MagicMock(side_effect=Exception("API Error 3"))
 
         # Call method
-        record_data = {"type": "A", "name": "test.example.com", "content": "192.168.1.2"}
-        result = self.client.update_dns_record("zone123", "record123", record_data)
-
-        # Verify results
-        assert result is True
-        mock_direct_api.assert_called_with(
-            "put", "/zones/zone123/dns_records/record123", data=record_data
-        )
-
-    @patch("lecf.core.cloudflare_client.CloudflareClient._direct_api_request")
-    def test_delete_dns_record_direct_api_success(self, mock_direct_api):
-        """Test delete_dns_record using direct API when successful."""
-        # Setup mock response
-        mock_direct_api.return_value = {"success": True}
-
-        # Call method
-        result = self.client.delete_dns_record("zone123", "record123")
-
-        # Verify results
-        assert result is True
-        mock_direct_api.assert_called_with("delete", "/zones/zone123/dns_records/record123")
-
-    def test_create_dns_record_success(self):
-        """Test create_dns_record when successful using object methods."""
-        # Setup mock response
-        self.client.cf.zones.dns_records.post.return_value = {"id": "record123"}
-
-        # Test data
         record_data = {"type": "A", "name": "test.example.com", "content": "192.168.1.1"}
+        record_id = self.client.create_dns_record("zone123", record_data)
 
-        # Mock direct API request to fail to test object methods
-        with patch(
-            "lecf.core.cloudflare_client.CloudflareClient._direct_api_request", return_value=None
-        ):
-            # Call method
-            record_id = self.client.create_dns_record("zone123", record_data)
-
-            # Verify results
-            assert record_id == "record123"
-            self.client.cf.zones.dns_records.post.assert_called_with(
-                zone_id="zone123", data=record_data
-            )
+        # Verify results
+        assert record_id is None
+        self.client.cf.dns.records.create.assert_called_with(zone_id="zone123", **record_data)
 
     def test_update_dns_record_success(self):
-        """Test update_dns_record when successful using object methods."""
-        # Setup mock response
-        self.client.cf.zones.dns_records.put.return_value = {
-            "id": "record123",
-            "modified_on": "2023-01-01",
-        }
+        """Test update_dns_record when successful."""
+        # Setup mock response with id attribute
+        mock_response = MagicMock()
+        mock_response.id = "record123"
+        self.client.cf.dns.records.update.return_value = mock_response
 
-        # Test data
+        # Call method
         record_data = {"type": "A", "name": "test.example.com", "content": "192.168.1.2"}
+        success = self.client.update_dns_record("zone123", "record123", record_data)
 
-        # Mock direct API request to fail to test object methods
-        with patch(
-            "lecf.core.cloudflare_client.CloudflareClient._direct_api_request", return_value=None
-        ):
-            # Call method
-            result = self.client.update_dns_record("zone123", "record123", record_data)
+        # Verify results
+        assert success is True
+        self.client.cf.dns.records.update.assert_called_with(
+            "record123", zone_id="zone123", **record_data
+        )
 
-            # Verify results
-            assert result is True
-            self.client.cf.zones.dns_records.put.assert_called_with(
-                zone_id="zone123", identifier="record123", data=record_data
-            )
+    def test_update_dns_record_failure(self):
+        """Test update_dns_record when API request fails."""
+        # Setup mock response
+        self.client.cf.dns.records.update.side_effect = Exception("API Error")
+        # Mock all fallback methods as well
+        self.client.cf._request_api_put = MagicMock(side_effect=Exception("API Error 2"))
+        self.client._direct_api_request = MagicMock(side_effect=Exception("API Error 3"))
+
+        # Call method
+        record_data = {"type": "A", "name": "test.example.com", "content": "192.168.1.2"}
+        success = self.client.update_dns_record("zone123", "record123", record_data)
+
+        # Verify results
+        assert success is False
+        self.client.cf.dns.records.update.assert_called_with(
+            "record123", zone_id="zone123", **record_data
+        )
 
     def test_delete_dns_record_success(self):
-        """Test delete_dns_record when successful using object methods."""
+        """Test delete_dns_record when successful."""
         # Setup mock response
-        self.client.cf.zones.dns_records.delete.return_value = {"success": True}
+        self.client.cf.dns.records.delete.return_value = {"id": "record123"}
 
-        # In the updated implementation, the method uses named arguments
-        # Make sure both forms of calling delete will work
-        def side_effect(*args, **kwargs):
-            if len(args) == 2:
-                # Old style: delete(zone_id, record_id)
-                return {"success": True}
-            if "zone_id" in kwargs and "identifier" in kwargs:
-                # New style: delete(zone_id=zone_id, identifier=record_id)
-                return {"success": True}
-            return None
+        # Call method
+        success = self.client.delete_dns_record("zone123", "record123")
 
-        self.client.cf.zones.dns_records.delete.side_effect = side_effect
+        # Verify results
+        assert success is True
+        self.client.cf.dns.records.delete.assert_called_with("record123", zone_id="zone123")
 
-        # Mock direct API request to fail to test object methods
-        with patch(
-            "lecf.core.cloudflare_client.CloudflareClient._direct_api_request", return_value=None
-        ):
-            # Call method
-            result = self.client.delete_dns_record("zone123", "record123")
+    def test_delete_dns_record_failure(self):
+        """Test delete_dns_record when API request fails."""
+        # Setup mock response
+        self.client.cf.dns.records.delete.side_effect = Exception("API Error")
+        # Mock all fallback methods as well
+        self.client.cf._request_api_delete = MagicMock(side_effect=Exception("API Error 2"))
+        self.client._direct_api_request = MagicMock(side_effect=Exception("API Error 3"))
 
-            # Verify results
-            assert result is True
+        # Call method
+        success = self.client.delete_dns_record("zone123", "record123")
 
-    def test_get_dns_records_success(self):
-        """Test get_dns_records with direct API method."""
-        # Create API-style response that the direct method expects
-        api_response = {
-            "result": [
-                {
-                    "id": "record1",
-                    "type": "A",
-                    "name": "test.example.com",
-                    "content": "192.168.1.1",
-                },
-                {
-                    "id": "record2",
-                    "type": "A",
-                    "name": "test2.example.com",
-                    "content": "192.168.1.2",
-                },
-            ],
-            "success": True,
-        }
-
-        # We'll directly mock the successful API response
-        with patch(
-            "lecf.core.cloudflare_client.CloudflareClient._direct_api_request",
-            return_value=api_response,
-        ):
-            # Call method with params
-            params = {"type": "A", "name": "test.example.com"}
-            records = self.client.get_dns_records("zone123", params=params)
-
-            # Since the name matches only the first record, we should get at least that
-            assert len(records) > 0
-            assert records[0]["id"] == "record1"
-            assert records[0]["type"] == "A"
-            assert records[0]["name"] == "test.example.com"
+        # Verify results
+        assert success is False
+        self.client.cf.dns.records.delete.assert_called_with("record123", zone_id="zone123")

@@ -207,9 +207,11 @@ class DdnsManager(BaseManager):
             dns_records = self.cloudflare.get_dns_records(zone_id, params)
 
             if dns_records:
-                # Update existing record
-                record_id = dns_records[0]["id"]
-                current_ip = dns_records[0]["content"]
+                # Update existing record - use attribute access instead of dictionary access
+                # Access SDK object properties via attributes (record.id) rather than keys (record["id"])
+                record_obj = dns_records[0]
+                record_id = record_obj.id
+                current_ip = record_obj.content
 
                 logger.debug(
                     f"Existing record details",
@@ -228,12 +230,17 @@ class DdnsManager(BaseManager):
                     )
                     return True
 
+                # Check if the record is proxied (get with fallback to False)
+                proxied = False
+                if hasattr(record_obj, "proxied"):
+                    proxied = record_obj.proxied
+
                 record = {
                     "name": record_name,
                     "type": record_type,
                     "content": ip,
                     "ttl": 60,  # Short TTL for DDNS
-                    "proxied": dns_records[0].get("proxied", False),  # Maintain proxy status
+                    "proxied": proxied,  # Maintain proxy status
                 }
 
                 logger.debug(
