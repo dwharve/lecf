@@ -51,7 +51,8 @@ class CloudflareClient:
                 extra={"domain": domain, "zone_name": zone_name, "action": "zones.get"},
             )
 
-            zones = self.cf.zones.get(params={"name": zone_name})
+            zones = self.cf.zones.get(name=zone_name)
+
             logger.debug(
                 f"Received zone response from Cloudflare API",
                 extra={
@@ -113,7 +114,10 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "params": params, "action": "dns_records.get"},
             )
 
-            records = self.cf.zones.dns_records.get(zone_id, params=params)
+            if params:
+                records = self.cf.zones.dns_records.get(zone_id, **params)
+            else:
+                records = self.cf.zones.dns_records.get(zone_id)
 
             logger.debug(
                 f"Retrieved DNS records",
@@ -159,7 +163,8 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.post(zone_id, data=record_data)
+            result = self.cf.zones.dns_records.post(zone_id, **record_data)
+
             record_id = result["id"]
 
             logger.debug(
@@ -215,7 +220,7 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
+            result = self.cf.zones.dns_records.put(zone_id, record_id, **record_data)
 
             logger.debug(
                 f"Updated DNS record successfully",
@@ -258,11 +263,11 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "record_id": record_id, "action": "dns_records.delete"},
             )
 
-            self.cf.zones.dns_records.delete(zone_id, record_id)
+            result = self.cf.zones.dns_records.delete(zone_id, record_id)
 
             logger.debug(
                 f"Deleted DNS record successfully",
-                extra={"zone_id": zone_id, "record_id": record_id},
+                extra={"zone_id": zone_id, "record_id": record_id, "api_response": result},
             )
 
             return True

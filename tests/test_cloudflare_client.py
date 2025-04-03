@@ -58,7 +58,7 @@ class TestCloudflareClient:
         # Verify results
         assert zone_id == "zone123"
         assert zone_name == "example.com"
-        self.client.cf.zones.get.assert_called_with(params={"name": "example.com"})
+        self.client.cf.zones.get.assert_called_with(name="example.com")
 
     def test_get_zone_id_invalid_domain(self):
         """Test get_zone_id with invalid domain format."""
@@ -76,7 +76,7 @@ class TestCloudflareClient:
 
         assert zone_id is None
         assert zone_name is None
-        self.client.cf.zones.get.assert_called_with(params={"name": "example.com"})
+        self.client.cf.zones.get.assert_called_with(name="example.com")
 
     def test_get_zone_id_api_error(self):
         """Test get_zone_id when CloudFlare API returns an error."""
@@ -113,7 +113,7 @@ class TestCloudflareClient:
 
         # Verify results
         assert record_id == "record123"
-        self.client.cf.zones.dns_records.post.assert_called_with("zone123", data=record_data)
+        self.client.cf.zones.dns_records.post.assert_called_with("zone123", **record_data)
 
     def test_create_dns_record_api_error(self):
         """Test create_dns_record when CloudFlare API returns an error."""
@@ -154,7 +154,7 @@ class TestCloudflareClient:
         # Verify results
         assert result is True
         self.client.cf.zones.dns_records.put.assert_called_with(
-            "zone123", "record123", data=record_data
+            "zone123", "record123", **record_data
         )
 
     def test_update_dns_record_api_error(self):
@@ -217,13 +217,19 @@ class TestCloudflareClient:
         mock_records = [{"id": "record1"}, {"id": "record2"}]
         self.client.cf.zones.dns_records.get.return_value = mock_records
 
-        # Call method with params (correct way)
+        # Call method with params
         params = {"type": "A", "name": "test.example.com"}
         records = self.client.get_dns_records("zone123", params=params)
 
         # Verify results
         assert records == mock_records
-        self.client.cf.zones.dns_records.get.assert_called_with("zone123", params=params)
+        self.client.cf.zones.dns_records.get.assert_called_with("zone123", **params)
+
+        # Test with no params
+        self.client.cf.zones.dns_records.get.reset_mock()
+        records = self.client.get_dns_records("zone123")
+        assert records == mock_records
+        self.client.cf.zones.dns_records.get.assert_called_with("zone123")
 
     def test_get_dns_records_api_error(self):
         """Test get_dns_records when CloudFlare API returns an error."""
