@@ -254,12 +254,13 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "params": params},
             )
 
-            # Use SDK to get DNS records
-            # Instead of using params dict, unpack any provided parameters
+            # According to the Cloudflare SDK documentation (https://raw.githubusercontent.com/cloudflare/cloudflare-python/refs/heads/main/api.md)
+            # The method signature is client.dns.records.list(*, zone_id, **params)
+            # This means zone_id should be a keyword argument, not a positional argument
             if params:
-                records_iterator = self.cf.dns.records.list(zone_id, **params)
+                records_iterator = self.cf.dns.records.list(zone_id=zone_id, **params)
             else:
-                records_iterator = self.cf.dns.records.list(zone_id)
+                records_iterator = self.cf.dns.records.list(zone_id=zone_id)
                 
             # Convert pagination iterator to a list
             records = list(records_iterator)
@@ -320,8 +321,10 @@ class CloudflareClient:
                 },
             )
 
-            # Use SDK to create DNS record - pass individual parameters
-            response = self.cf.dns.records.create(zone_id, **record_data)
+            # According to the Cloudflare SDK documentation (https://raw.githubusercontent.com/cloudflare/cloudflare-python/refs/heads/main/api.md)
+            # The method signature is client.dns.records.create(*, zone_id, **params)
+            # This means zone_id should be a keyword argument, not a positional argument
+            response = self.cf.dns.records.create(zone_id=zone_id, **record_data)
             
             # Access response properties using attribute notation instead of dictionary notation
             if response and hasattr(response, 'id'):
@@ -392,8 +395,11 @@ class CloudflareClient:
                 },
             )
 
-            # Use SDK to update DNS record - pass individual parameters
-            response = self.cf.dns.records.update(zone_id, record_id, **record_data)
+            # According to the Cloudflare SDK documentation
+            # The method signature is:
+            # client.dns.records.update(record_id, *, zone_id, **params)
+            # Note: record_id is positional but zone_id is a keyword argument
+            response = self.cf.dns.records.update(record_id, zone_id=zone_id, **record_data)
             
             # Check response using attribute access
             if response:
@@ -441,9 +447,11 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "record_id": record_id},
             )
 
-            # Use SDK to delete DNS record
-            # This method only needs zone_id and record_id, no additional parameters
-            response = self.cf.dns.records.delete(zone_id, record_id)
+            # According to the Cloudflare SDK documentation
+            # The method signature is:
+            # client.dns.records.delete(record_id, *, zone_id)
+            # Note: record_id is positional but zone_id is a keyword argument
+            response = self.cf.dns.records.delete(record_id, zone_id=zone_id)
             
             if response:
                 logger.debug(f"Successfully deleted DNS record")
