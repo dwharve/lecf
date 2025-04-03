@@ -187,10 +187,16 @@ class CloudflareClient:
             # Instead, pass name directly as a parameter
             zones = self.cf.zones.list(name=zone_name)
             
-            if zones and len(zones) > 0:
-                zone = zones[0]
-                zone_id = zone["id"]
-                zone_name = zone["name"]
+            # SyncV4PagePaginationArray doesn't support len(), but we can iterate over it
+            # Try to get the first item in the iterator
+            found_zone = None
+            for zone in zones:
+                found_zone = zone
+                break
+                
+            if found_zone:
+                zone_id = found_zone["id"]
+                zone_name = found_zone["name"]
                 logger.debug(
                     f"Found zone",
                     extra={
@@ -249,9 +255,12 @@ class CloudflareClient:
             # Use SDK to get DNS records
             # Instead of using params dict, unpack any provided parameters
             if params:
-                records = self.cf.dns.records.list(zone_id, **params)
+                records_iterator = self.cf.dns.records.list(zone_id, **params)
             else:
-                records = self.cf.dns.records.list(zone_id)
+                records_iterator = self.cf.dns.records.list(zone_id)
+                
+            # Convert pagination iterator to a list
+            records = list(records_iterator)
             
             logger.debug(
                 f"Found DNS records",
