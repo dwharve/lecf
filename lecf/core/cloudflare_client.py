@@ -66,6 +66,42 @@ class CloudflareClient:
             self.cf = Client(api_token=api_token or cf_config["api_token"])
         
         logger.debug("CloudflareClient initialized")
+        
+        # Diagnostic information about the structure of the SDK
+        self._log_sdk_structure()
+
+    def _log_sdk_structure(self):
+        """Log diagnostic information about the Cloudflare SDK structure."""
+        try:
+            # Log basic client information
+            logger.debug("Cloudflare SDK structure diagnostic")
+            
+            # Check if dns and records attributes exist
+            if hasattr(self.cf, 'dns'):
+                logger.debug("Client has dns attribute")
+                
+                if hasattr(self.cf.dns, 'records'):
+                    logger.debug("Client.dns has records attribute")
+                    
+                    # Check the actual methods on the records object
+                    records_methods = [method for method in dir(self.cf.dns.records) if not method.startswith('_')]
+                    logger.debug(f"Available methods on cf.dns.records: {records_methods}")
+                    
+                    # Try to get the actual function signature for the list method
+                    if hasattr(self.cf.dns.records, 'list'):
+                        import inspect
+                        try:
+                            sig = str(inspect.signature(self.cf.dns.records.list))
+                            logger.debug(f"Signature of dns.records.list: {sig}")
+                        except Exception as e:
+                            logger.debug(f"Could not get signature: {str(e)}")
+                else:
+                    logger.debug("Client.dns does NOT have records attribute")
+            else:
+                logger.debug("Client does NOT have dns attribute")
+                
+        except Exception as e:
+            logger.error(f"Error during SDK structure diagnostics: {str(e)}")
 
     def _direct_api_request(
         self, method: str, path: str, params: dict = None, data: dict = None
@@ -248,19 +284,46 @@ class CloudflareClient:
         Example:
             records = client.get_dns_records(zone_id, {"type": "A", "name": "www.example.com"})
         """
+        logger.debug("DEBUG VERSION CHECK: get_dns_records using keyword arguments")
         try:
             logger.debug(
                 f"Getting DNS records",
                 extra={"zone_id": zone_id, "params": params},
             )
 
-            # According to the Cloudflare SDK documentation (https://raw.githubusercontent.com/cloudflare/cloudflare-python/refs/heads/main/api.md)
-            # The method signature is client.dns.records.list(*, zone_id, **params)
-            # This means zone_id should be a keyword argument, not a positional argument
-            if params:
-                records_iterator = self.cf.dns.records.list(zone_id=zone_id, **params)
-            else:
-                records_iterator = self.cf.dns.records.list(zone_id=zone_id)
+            # Try different approaches to get DNS records
+            try:
+                # Approach 1: According to the Cloudflare SDK documentation, use keyword arguments
+                if params:
+                    records_iterator = self.cf.dns.records.list(zone_id=zone_id, **params)
+                else:
+                    records_iterator = self.cf.dns.records.list(zone_id=zone_id)
+                    
+                logger.debug("Successfully called self.cf.dns.records.list with keyword arguments")
+            except Exception as e1:
+                logger.debug(f"First approach failed: {str(e1)}")
+                
+                try:
+                    # Approach 2: Try direct API calls via the SDK's internal structure
+                    # This is a fallback in case the API structure has changed
+                    endpoint = f"/zones/{zone_id}/dns_records"
+                    if params:
+                        response = self.cf._request_api_get(endpoint, params=params)
+                    else:
+                        response = self.cf._request_api_get(endpoint)
+                        
+                    logger.debug("Successfully called self.cf._request_api_get directly")
+                    return response.get("result", [])
+                except Exception as e2:
+                    logger.debug(f"Second approach failed: {str(e2)}")
+                    
+                    # As a last resort, use our direct API request method
+                    logger.debug("Falling back to direct API request")
+                    path = f"/zones/{zone_id}/dns_records"
+                    response = self._direct_api_request("get", path, params=params)
+                    if response and "result" in response:
+                        return response["result"]
+                    raise Exception(f"All approaches failed: {str(e1)}, {str(e2)}")
                 
             # Convert pagination iterator to a list
             records = list(records_iterator)
@@ -307,6 +370,7 @@ class CloudflareClient:
             }
             record_id = client.create_dns_record(zone_id, record_data)
         """
+        logger.debug("DEBUG VERSION CHECK: create_dns_record using keyword arguments")
         try:
             record_name = record_data.get("name", "unknown")
             record_type = record_data.get("type", "unknown")
@@ -321,10 +385,33 @@ class CloudflareClient:
                 },
             )
 
-            # According to the Cloudflare SDK documentation (https://raw.githubusercontent.com/cloudflare/cloudflare-python/refs/heads/main/api.md)
-            # The method signature is client.dns.records.create(*, zone_id, **params)
-            # This means zone_id should be a keyword argument, not a positional argument
-            response = self.cf.dns.records.create(zone_id=zone_id, **record_data)
+            # Try different approaches to create DNS records
+            try:
+                # Approach 1: According to the Cloudflare SDK documentation, use keyword arguments
+                response = self.cf.dns.records.create(zone_id=zone_id, **record_data)
+                logger.debug("Successfully called self.cf.dns.records.create with keyword arguments")
+            except Exception as e1:
+                logger.debug(f"First approach failed: {str(e1)}")
+                
+                try:
+                    # Approach 2: Try direct API calls via the SDK's internal structure
+                    # This is a fallback in case the API structure has changed
+                    endpoint = f"/zones/{zone_id}/dns_records"
+                    response = self.cf._request_api_post(endpoint, json_data=record_data)
+                    logger.debug("Successfully called self.cf._request_api_post directly")
+                    
+                    if response and "result" in response and "id" in response["result"]:
+                        return response["result"]["id"]
+                except Exception as e2:
+                    logger.debug(f"Second approach failed: {str(e2)}")
+                    
+                    # As a last resort, use our direct API request method
+                    logger.debug("Falling back to direct API request")
+                    path = f"/zones/{zone_id}/dns_records"
+                    response = self._direct_api_request("post", path, data=record_data)
+                    if response and "result" in response and "id" in response["result"]:
+                        return response["result"]["id"]
+                    raise Exception(f"All approaches failed: {str(e1)}, {str(e2)}")
             
             # Access response properties using attribute notation instead of dictionary notation
             if response and hasattr(response, 'id'):
@@ -379,6 +466,7 @@ class CloudflareClient:
                 {"content": "192.0.2.2", "ttl": 1}
             )
         """
+        logger.debug("DEBUG VERSION CHECK: update_dns_record using keyword arguments")
         try:
             record_name = record_data.get("name", "unknown")
             record_type = record_data.get("type", "unknown")
@@ -395,11 +483,32 @@ class CloudflareClient:
                 },
             )
 
-            # According to the Cloudflare SDK documentation
-            # The method signature is:
-            # client.dns.records.update(record_id, *, zone_id, **params)
-            # Note: record_id is positional but zone_id is a keyword argument
-            response = self.cf.dns.records.update(record_id, zone_id=zone_id, **record_data)
+            # Try different approaches to update DNS records
+            try:
+                # Approach 1: According to the Cloudflare SDK documentation
+                response = self.cf.dns.records.update(record_id, zone_id=zone_id, **record_data)
+                logger.debug("Successfully called self.cf.dns.records.update with record_id and keyword arguments")
+            except Exception as e1:
+                logger.debug(f"First approach failed: {str(e1)}")
+                
+                try:
+                    # Approach 2: Try direct API calls via the SDK's internal structure
+                    endpoint = f"/zones/{zone_id}/dns_records/{record_id}"
+                    response = self.cf._request_api_put(endpoint, json_data=record_data)
+                    logger.debug("Successfully called self.cf._request_api_put directly")
+                    
+                    if response and "success" in response and response["success"]:
+                        return True
+                except Exception as e2:
+                    logger.debug(f"Second approach failed: {str(e2)}")
+                    
+                    # As a last resort, use our direct API request method
+                    logger.debug("Falling back to direct API request")
+                    path = f"/zones/{zone_id}/dns_records/{record_id}"
+                    response = self._direct_api_request("put", path, data=record_data)
+                    if response and "success" in response and response["success"]:
+                        return True
+                    raise Exception(f"All approaches failed: {str(e1)}, {str(e2)}")
             
             # Check response using attribute access
             if response:
@@ -441,17 +550,39 @@ class CloudflareClient:
         Example:
             deleted = client.delete_dns_record(zone_id, record_id)
         """
+        logger.debug("DEBUG VERSION CHECK: delete_dns_record using keyword arguments")
         try:
             logger.debug(
                 f"Deleting DNS record",
                 extra={"zone_id": zone_id, "record_id": record_id},
             )
 
-            # According to the Cloudflare SDK documentation
-            # The method signature is:
-            # client.dns.records.delete(record_id, *, zone_id)
-            # Note: record_id is positional but zone_id is a keyword argument
-            response = self.cf.dns.records.delete(record_id, zone_id=zone_id)
+            # Try different approaches to delete DNS records
+            try:
+                # Approach 1: According to the Cloudflare SDK documentation
+                response = self.cf.dns.records.delete(record_id, zone_id=zone_id)
+                logger.debug("Successfully called self.cf.dns.records.delete with record_id and keyword arguments")
+            except Exception as e1:
+                logger.debug(f"First approach failed: {str(e1)}")
+                
+                try:
+                    # Approach 2: Try direct API calls via the SDK's internal structure
+                    endpoint = f"/zones/{zone_id}/dns_records/{record_id}"
+                    response = self.cf._request_api_delete(endpoint)
+                    logger.debug("Successfully called self.cf._request_api_delete directly")
+                    
+                    if response and "success" in response and response["success"]:
+                        return True
+                except Exception as e2:
+                    logger.debug(f"Second approach failed: {str(e2)}")
+                    
+                    # As a last resort, use our direct API request method
+                    logger.debug("Falling back to direct API request")
+                    path = f"/zones/{zone_id}/dns_records/{record_id}"
+                    response = self._direct_api_request("delete", path)
+                    if response and "success" in response and response["success"]:
+                        return True
+                    raise Exception(f"All approaches failed: {str(e1)}, {str(e2)}")
             
             if response:
                 logger.debug(f"Successfully deleted DNS record")
@@ -474,3 +605,77 @@ class CloudflareClient:
                 },
             )
             return False
+
+    def test_dns_methods(self, zone_id: str = None) -> Dict[str, Any]:
+        """
+        Run diagnostic tests on DNS methods.
+        
+        This is a diagnostic function to test different ways of calling the Cloudflare SDK.
+
+        Args:
+            zone_id: Optional zone ID to use for testing
+
+        Returns:
+            Dictionary with diagnostic information
+        """
+        results = {
+            "methods": {},
+            "attributes": {},
+            "tests": {}
+        }
+        
+        # Get SDK information
+        try:
+            results["sdk_version"] = self.cf.VERSION if hasattr(self.cf, "VERSION") else "unknown"
+        except Exception as e:
+            results["sdk_version_error"] = str(e)
+            
+        # Check attributes
+        for attr_name in ["dns", "zones"]:
+            try:
+                results["attributes"][attr_name] = hasattr(self.cf, attr_name)
+            except Exception as e:
+                results["attributes"][f"{attr_name}_error"] = str(e)
+        
+        # If dns attribute exists, check records 
+        if hasattr(self.cf, "dns"):
+            try:
+                results["attributes"]["dns.records"] = hasattr(self.cf.dns, "records")
+            except Exception as e:
+                results["attributes"]["dns.records_error"] = str(e)
+        
+        # If we have records, check methods
+        if hasattr(self.cf, "dns") and hasattr(self.cf.dns, "records"):
+            for method_name in ["list", "create", "update", "delete"]:
+                try:
+                    results["methods"][f"dns.records.{method_name}"] = hasattr(self.cf.dns.records, method_name)
+                except Exception as e:
+                    results["methods"][f"dns.records.{method_name}_error"] = str(e)
+        
+        # Test get_zone
+        if zone_id:
+            # Test get_dns_records with different approaches
+            try:
+                # Try the current implementation with keyword arguments
+                records = self.get_dns_records(zone_id)
+                results["tests"]["get_dns_records"] = f"Success, found {len(records)} records"
+            except Exception as e:
+                results["tests"]["get_dns_records_error"] = str(e)
+                
+            # Try direct call to list
+            if hasattr(self.cf, "dns") and hasattr(self.cf.dns, "records") and hasattr(self.cf.dns.records, "list"):
+                try:
+                    # Try with keyword argument
+                    records = self.cf.dns.records.list(zone_id=zone_id)
+                    results["tests"]["direct_list_kw"] = "Success"
+                except Exception as e1:
+                    results["tests"]["direct_list_kw_error"] = str(e1)
+                    
+                    try:
+                        # Try with positional argument
+                        records = self.cf.dns.records.list(zone_id)
+                        results["tests"]["direct_list_pos"] = "Success"
+                    except Exception as e2:
+                        results["tests"]["direct_list_pos_error"] = str(e2)
+        
+        return results
