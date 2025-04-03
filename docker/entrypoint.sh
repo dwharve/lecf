@@ -7,4 +7,4 @@ if [ ! -f /app/.env ] && [ ! -f /app/config.yaml ]; then
 fi
 
 # Start the application
-exec python /app/main.py 
+exec python -m lecf.cli 
