@@ -1,11 +1,7 @@
-certbot==2.7.0
-python-cloudflare==2.8.15
-python-dotenv==1.0.0
-schedule==1.2.1
-cryptography==41.0.7
-requests==2.31.0
-python-json-logger==2.0.7
-# Development dependencies
-pytest==7.4.3
-flake8==6.1.0
-mypy==1.7.1 
+certbot
+python-cloudflare
+python-dotenv
+schedule
+cryptography
+requests
+python-json-logger
