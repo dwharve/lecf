@@ -3,8 +3,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 import cloudflare
-from cloudflare import CloudflareClient as Client
-from cloudflare.types import Account, Zone, PermissionGroupListResponse
+from cloudflare import Client
 
 from lecf.utils import config, logger
 
@@ -130,28 +129,17 @@ class CloudflareClient:
         )
 
         try:
-            # Get zone ID using the SDK
-            logger.debug(
-                f"Sending Cloudflare API request for zones",
-                extra={"domain": domain, "zone_name": zone_name},
-            )
+            # Use direct API call to get zones
+            path = "/zones"
+            params = {"name": zone_name}
+            response = self._direct_api_request("get", path, params=params)
 
-            zones = self.cf.zones.list()
-            
-            # Find our zone
-            for zone in zones:
-                if isinstance(zone, dict) and zone.get("name") == zone_name:
-                    zone_id = zone.get("id")
-                    logger.debug(
-                        f"Found zone",
-                        extra={
-                            "zone_id": zone_id,
-                            "zone_name": zone_name,
-                        },
-                    )
-                    return zone_id, zone_name
-                elif hasattr(zone, "name") and zone.name == zone_name:
-                    zone_id = zone.id
+            if response and "result" in response:
+                zones = response["result"]
+                if zones:
+                    zone = zones[0]
+                    zone_id = zone["id"]
+                    zone_name = zone["name"]
                     logger.debug(
                         f"Found zone",
                         extra={
@@ -196,44 +184,14 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "params": params},
             )
 
-            # Try using the SDK
-            try:
-                # Convert to dict for consistency in return type
-                records = []
-                for record in self.cf.zones.dns_records.list(zone_id=zone_id, params=params):
-                    if hasattr(record, "__dict__"):
-                        record_dict = vars(record)
-                    elif isinstance(record, dict):
-                        record_dict = record
-                    else:
-                        # Try to convert to dict
-                        record_dict = {}
-                        for attr in dir(record):
-                            if not attr.startswith("_") and not callable(getattr(record, attr)):
-                                record_dict[attr] = getattr(record, attr)
-                    
-                    records.append(record_dict)
-                
-                if records:
-                    logger.debug(
-                        f"Found DNS records using SDK",
-                        extra={"zone_id": zone_id, "count": len(records)},
-                    )
-                    return records
-            except Exception as e1:
-                logger.debug(
-                    f"Failed to get DNS records using SDK",
-                    extra={"error": str(e1), "error_type": type(e1).__name__},
-                )
-
-            # Fall back to direct API call
+            # Use direct API call
             path = f"/zones/{zone_id}/dns_records"
-            response = self._direct_api_request("get", path, params)
+            response = self._direct_api_request("get", path, params=params)
 
             if response and "result" in response:
                 records = response["result"]
                 logger.debug(
-                    f"Found DNS records using direct API call",
+                    f"Found DNS records",
                     extra={"zone_id": zone_id, "count": len(records)},
                 )
                 return records
@@ -273,43 +231,14 @@ class CloudflareClient:
                 },
             )
 
-            # Try using the SDK
-            try:
-                result = self.cf.zones.dns_records.create(zone_id=zone_id, data=record_data)
-                
-                # Extract ID from the result
-                if hasattr(result, "id"):
-                    record_id = result.id
-                elif isinstance(result, dict) and "id" in result:
-                    record_id = result["id"]
-                else:
-                    # Try to find id in response
-                    record_id = None
-                    for key, value in vars(result).items():
-                        if key == "id":
-                            record_id = value
-                            break
-                
-                if record_id:
-                    logger.debug(
-                        f"Successfully created DNS record using SDK",
-                        extra={"record_id": record_id},
-                    )
-                    return record_id
-            except Exception as e1:
-                logger.debug(
-                    f"Failed to create DNS record using SDK",
-                    extra={"error": str(e1), "error_type": type(e1).__name__},
-                )
-
-            # Fall back to direct API call
+            # Use direct API call
             path = f"/zones/{zone_id}/dns_records"
             response = self._direct_api_request("post", path, data=record_data)
 
             if response and "result" in response and "id" in response["result"]:
                 record_id = response["result"]["id"]
                 logger.debug(
-                    f"Successfully created DNS record using direct API request",
+                    f"Successfully created DNS record",
                     extra={"record_id": record_id},
                 )
                 return record_id
@@ -360,25 +289,12 @@ class CloudflareClient:
                 },
             )
 
-            # Try using the SDK
-            try:
-                self.cf.zones.dns_records.update(
-                    dns_record_id=record_id, zone_id=zone_id, data=record_data
-                )
-                logger.debug(f"Successfully updated DNS record using SDK")
-                return True
-            except Exception as e1:
-                logger.debug(
-                    f"Failed to update DNS record using SDK",
-                    extra={"error": str(e1), "error_type": type(e1).__name__},
-                )
-
-            # Fall back to direct API call
+            # Use direct API call
             path = f"/zones/{zone_id}/dns_records/{record_id}"
             response = self._direct_api_request("put", path, data=record_data)
 
             if response and "success" in response and response["success"]:
-                logger.debug(f"Successfully updated DNS record using direct API request")
+                logger.debug(f"Successfully updated DNS record")
                 return True
 
             logger.error(
@@ -417,23 +333,12 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "record_id": record_id},
             )
 
-            # Try using the SDK
-            try:
-                self.cf.zones.dns_records.delete(dns_record_id=record_id, zone_id=zone_id)
-                logger.debug(f"Successfully deleted DNS record using SDK")
-                return True
-            except Exception as e1:
-                logger.debug(
-                    f"Failed to delete DNS record using SDK",
-                    extra={"error": str(e1), "error_type": type(e1).__name__},
-                )
-
-            # Fall back to direct API call
+            # Use direct API call
             path = f"/zones/{zone_id}/dns_records/{record_id}"
             response = self._direct_api_request("delete", path)
 
             if response and "success" in response and response["success"]:
-                logger.debug(f"Successfully deleted DNS record using direct API request")
+                logger.debug(f"Successfully deleted DNS record")
                 return True
 
             logger.error(
