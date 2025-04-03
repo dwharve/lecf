@@ -18,7 +18,7 @@ class CloudflareClient:
             api_token: Cloudflare API token. If None, fetched from config.
         """
         cf_config = config.get_cloudflare_config(config.APP_CONFIG)
-        self.cf = cloudflare.Client(api_token=api_token or cf_config["api_token"])
+        self.cf = cloudflare.Client(token=api_token or cf_config["api_token"])
         logger.debug("CloudflareClient initialized")
 
     def get_zone_id(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
@@ -84,22 +84,15 @@ class CloudflareClient:
             )
 
             return zone_id, actual_zone_name
-        except cloudflare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             logger.error(
                 f"Cloudflare API error when getting zone ID",
                 extra={
                     "domain": domain,
                     "zone_name": zone_name,
-                    "error_code": e.code,
                     "error": str(e),
-                    "details": getattr(e, "details", None),
+                    "error_type": type(e).__name__,
                 },
-            )
-            return None, None
-        except Exception as e:
-            logger.error(
-                f"Failed to get zone ID for domain",
-                extra={"domain": domain, "error": str(e), "error_type": type(e).__name__},
             )
             return None, None
 
@@ -128,22 +121,15 @@ class CloudflareClient:
             )
 
             return records or []
-        except cloudflare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             logger.error(
                 f"Cloudflare API error when getting DNS records",
                 extra={
                     "zone_id": zone_id,
                     "params": params,
-                    "error_code": e.code,
                     "error": str(e),
-                    "details": getattr(e, "details", None),
+                    "error_type": type(e).__name__,
                 },
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                f"Failed to get DNS records",
-                extra={"zone_id": zone_id, "error": str(e), "error_type": type(e).__name__},
             )
             return []
 
@@ -188,22 +174,15 @@ class CloudflareClient:
             )
 
             return record_id
-        except cloudflare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             logger.error(
                 f"Cloudflare API error when creating DNS record",
                 extra={
                     "zone_id": zone_id,
                     "record_data": record_data,
-                    "error_code": e.code,
                     "error": str(e),
-                    "details": getattr(e, "details", None),
+                    "error_type": type(e).__name__,
                 },
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                f"Failed to create DNS record",
-                extra={"zone_id": zone_id, "error": str(e), "error_type": type(e).__name__},
             )
             return None
 
@@ -249,25 +228,13 @@ class CloudflareClient:
             )
 
             return True
-        except cloudflare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             logger.error(
                 f"Cloudflare API error when updating DNS record",
                 extra={
                     "zone_id": zone_id,
                     "record_id": record_id,
                     "record_data": record_data,
-                    "error_code": e.code,
-                    "error": str(e),
-                    "details": getattr(e, "details", None),
-                },
-            )
-            return False
-        except Exception as e:
-            logger.error(
-                f"Failed to update DNS record",
-                extra={
-                    "zone_id": zone_id,
-                    "record_id": record_id,
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },
@@ -299,21 +266,9 @@ class CloudflareClient:
             )
 
             return True
-        except cloudflare.exceptions.CloudFlareAPIError as e:
-            logger.error(
-                f"Cloudflare API error when deleting DNS record",
-                extra={
-                    "zone_id": zone_id,
-                    "record_id": record_id,
-                    "error_code": e.code,
-                    "error": str(e),
-                    "details": getattr(e, "details", None),
-                },
-            )
-            return False
         except Exception as e:
             logger.error(
-                f"Failed to delete DNS record",
+                f"Cloudflare API error when deleting DNS record",
                 extra={
                     "zone_id": zone_id,
                     "record_id": record_id,
