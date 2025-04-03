@@ -1,8 +1,9 @@
 """DDNS manager for updating Cloudflare DNS records with your current IP address."""
 
-import requests
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+import requests
 
 from lecf.core import BaseManager, CloudflareClient
 from lecf.utils import config, get_env, get_env_int, logger
@@ -30,7 +31,7 @@ class DdnsManager(BaseManager):
             "https://api.ipify.org",
             "https://ifconfig.me/ip",
             "https://icanhazip.com",
-            "https://checkip.amazonaws.com"
+            "https://checkip.amazonaws.com",
         ]
 
         # Track state
@@ -143,7 +144,7 @@ class DdnsManager(BaseManager):
     def get_public_ip(self) -> Optional[str]:
         """
         Get the current public IP address using various services.
-        
+
         Returns:
             Current public IP address or None if all services fail
         """
@@ -151,31 +152,31 @@ class DdnsManager(BaseManager):
             try:
                 logger.debug(f"Checking public IP using service", extra={"service": service_url})
                 response = requests.get(service_url, timeout=10)
-                
+
                 if response.status_code == 200:
                     ip = response.text.strip()
                     logger.debug(f"Public IP found", extra={"ip": ip})
                     return ip
             except Exception as e:
                 logger.debug(
-                    f"Failed to get IP from service", 
-                    extra={"service": service_url, "error": str(e)}
+                    f"Failed to get IP from service",
+                    extra={"service": service_url, "error": str(e)},
                 )
                 continue
-                
+
         logger.error("Failed to get public IP from all services")
         return None
 
     def update_dns_record(self, domain: str, subdomain: str, record_type: str, ip: str) -> bool:
         """
         Update a specific DNS record with the new IP.
-        
+
         Args:
             domain: Domain name (zone name)
             subdomain: Subdomain to update (@ for root domain)
             record_type: DNS record type (A, AAAA, etc.)
             ip: IP address to set
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -185,119 +186,106 @@ class DdnsManager(BaseManager):
             if not zone_id:
                 logger.error(f"No zone found for domain", extra={"domain": domain})
                 return False
-                
+
             # Handle root domain (@) special case
             record_name = domain if subdomain == "@" else f"{subdomain}.{domain}"
-            
+
             logger.debug(
-                f"Updating DNS record", 
+                f"Updating DNS record",
                 extra={
                     "domain": domain,
                     "record_name": record_name,
                     "record_type": record_type,
-                    "subdomain": subdomain
-                }
+                    "subdomain": subdomain,
+                },
             )
-            
+
             # Find existing record
-            params = {
-                "name": record_name,
-                "type": record_type
-            }
-            
+            params = {"name": record_name, "type": record_type}
+
             # Get existing records
             dns_records = self.cloudflare.get_dns_records(zone_id, params)
-            
+
             if dns_records:
                 # Update existing record
                 record_id = dns_records[0]["id"]
                 current_ip = dns_records[0]["content"]
-                
+
                 logger.debug(
-                    f"Existing record details", 
+                    f"Existing record details",
                     extra={
                         "record_id": record_id,
                         "current_ip": current_ip,
                         "new_ip": ip,
-                        "record_name": record_name
-                    }
+                        "record_name": record_name,
+                    },
                 )
-                
+
                 if current_ip == ip:
                     logger.debug(
-                        f"IP unchanged, skipping update", 
-                        extra={"record_name": record_name, "ip": ip}
+                        f"IP unchanged, skipping update",
+                        extra={"record_name": record_name, "ip": ip},
                     )
                     return True
-                
+
                 record = {
                     "name": record_name,
                     "type": record_type,
                     "content": ip,
                     "ttl": 60,  # Short TTL for DDNS
-                    "proxied": dns_records[0].get("proxied", False)  # Maintain proxy status
+                    "proxied": dns_records[0].get("proxied", False),  # Maintain proxy status
                 }
-                
+
                 logger.debug(
-                    f"Updating existing DNS record", 
-                    extra={"record_id": record_id, "record": record}
+                    f"Updating existing DNS record",
+                    extra={"record_id": record_id, "record": record},
                 )
-                
+
                 success = self.cloudflare.update_dns_record(zone_id, record_id, record)
                 if success:
                     logger.info(
-                        f"Updated DNS record", 
-                        extra={
-                            "record_type": record_type, 
-                            "record_name": record_name, 
-                            "ip": ip
-                        }
+                        f"Updated DNS record",
+                        extra={"record_type": record_type, "record_name": record_name, "ip": ip},
                     )
                     return True
-                
+
                 logger.error(
-                    f"Failed to update DNS record", 
-                    extra={"record_name": record_name, "record_id": record_id}
+                    f"Failed to update DNS record",
+                    extra={"record_name": record_name, "record_id": record_id},
                 )
                 return False
-                
-            else:
-                # Create new record
-                record = {
-                    "name": record_name,
-                    "type": record_type,
-                    "content": ip,
-                    "ttl": 60,
-                    "proxied": False
-                }
-                
-                logger.debug(
-                    f"Creating new DNS record", 
-                    extra={"zone_id": zone_id, "record": record}
+
+            # Create new record
+            record = {
+                "name": record_name,
+                "type": record_type,
+                "content": ip,
+                "ttl": 60,
+                "proxied": False,
+            }
+
+            logger.debug(f"Creating new DNS record", extra={"zone_id": zone_id, "record": record})
+
+            record_id = self.cloudflare.create_dns_record(zone_id, record)
+            if record_id:
+                logger.info(
+                    f"Created new DNS record",
+                    extra={"record_type": record_type, "record_name": record_name, "ip": ip},
                 )
-                
-                record_id = self.cloudflare.create_dns_record(zone_id, record)
-                if record_id:
-                    logger.info(
-                        f"Created new DNS record", 
-                        extra={
-                            "record_type": record_type, 
-                            "record_name": record_name, 
-                            "ip": ip
-                        }
-                    )
-                    return True
-                
-                logger.error(
-                    f"Failed to create DNS record", 
-                    extra={"record_name": record_name}
-                )
-                return False
-                
+                return True
+
+            logger.error(f"Failed to create DNS record", extra={"record_name": record_name})
+            return False
+
         except Exception as e:
             logger.error(
-                f"Failed to update DNS record", 
-                extra={"domain": domain, "subdomain": subdomain, "error": str(e), "error_type": type(e).__name__}
+                f"Failed to update DNS record",
+                extra={
+                    "domain": domain,
+                    "subdomain": subdomain,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
             )
             return False
 
@@ -310,7 +298,7 @@ class DdnsManager(BaseManager):
         if not ip:
             logger.error("Could not update domains: failed to get public IP")
             return
-            
+
         # Skip update if IP hasn't changed since last check
         if ip == self.current_ip:
             logger.debug("IP unchanged since last check, skipping updates")
@@ -320,33 +308,29 @@ class DdnsManager(BaseManager):
         # Log if IP has changed
         if self.current_ip is not None:
             logger.info(
-                f"Public IP address changed",
-                extra={"previous_ip": self.current_ip, "new_ip": ip}
+                f"Public IP address changed", extra={"previous_ip": self.current_ip, "new_ip": ip}
             )
         else:
-            logger.info(
-                f"Initial IP address detected",
-                extra={"ip": ip}
-            )
-        
+            logger.info(f"Initial IP address detected", extra={"ip": ip})
+
         update_count = 0
         error_count = 0
-        
+
         # Process each domain
         for domain, config in self.domains.items():
             logger.debug(
-                f"Processing domain", 
-                extra={"domain": domain, "subdomains": config.get("subdomains")}
+                f"Processing domain",
+                extra={"domain": domain, "subdomains": config.get("subdomains")},
             )
-            
+
             # Get record types to update
             record_types = config.get("record_types") or self.default_record_types
-            
+
             # Update each subdomain
             for subdomain in config.get("subdomains", []):
                 for record_type in record_types:
                     success = self.update_dns_record(domain, subdomain, record_type, ip)
-                    
+
                     if success:
                         update_count += 1
                     else:
@@ -354,10 +338,10 @@ class DdnsManager(BaseManager):
 
         # Log summary
         logger.info(
-            f"DDNS update completed", 
-            extra={"updated": update_count, "errors": error_count, "domains": len(self.domains)}
+            f"DDNS update completed",
+            extra={"updated": update_count, "errors": error_count, "domains": len(self.domains)},
         )
-        
+
         # Track state
         self.current_ip = ip
         self.last_check_time = datetime.now()

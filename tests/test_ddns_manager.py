@@ -111,24 +111,23 @@ class TestDdnsManager:
         }
         self.manager.default_record_types = ["A"]
 
+        # Mock the get_public_ip method to return a known value
+        self.manager.get_public_ip = lambda: "127.0.0.1"
+
+        # Mock update_dns_record to avoid actual API calls
+        self.manager.update_dns_record = lambda domain, subdomain, record_type, ip: True
+
         # Run the method
         self.manager._execute_cycle()
 
         # Verify the method ran as expected
-        assert self.manager.current_ip == "127.0.0.1"  # Placeholder value in the method
+        assert self.manager.current_ip == "127.0.0.1"  # Now matches our mocked value
         assert self.manager.last_check_time == mock_now
 
-        # Verify logging - now each domain gets logged individually
-        mock_logger.info.assert_any_call(
-            "Would update DNS records for domain",
-            extra={
-                "domain": "example.com",
-                "subdomains": ["@", "www"],
-                "record_types": ["A", "AAAA"],
-            },
-        )
+        # Verify logging
+        mock_logger.info.assert_any_call(f"Initial IP address detected", extra={"ip": "127.0.0.1"})
 
         mock_logger.info.assert_any_call(
-            "Would update DNS records for domain",
-            extra={"domain": "test.com", "subdomains": ["@"], "record_types": ["A"]},
+            f"DDNS update completed",
+            extra={"updated": 5, "errors": 0, "domains": 2},
         )

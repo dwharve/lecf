@@ -106,11 +106,11 @@ class CloudflareClient:
     def get_dns_records(self, zone_id: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Get DNS records for a zone that match the specified parameters.
-        
+
         Args:
             zone_id: Cloudflare zone ID
             params: Optional filtering parameters (name, type, etc.)
-            
+
         Returns:
             List of DNS records or empty list if none found or on error
         """
@@ -119,14 +119,14 @@ class CloudflareClient:
                 f"Getting DNS records",
                 extra={"zone_id": zone_id, "params": params, "action": "dns_records.get"},
             )
-            
+
             records = self.cf.zones.dns_records.get(zone_id, params=params)
-            
+
             logger.debug(
                 f"Retrieved DNS records",
                 extra={"zone_id": zone_id, "count": len(records) if records else 0},
             )
-            
+
             return records or []
         except cloudflare.exceptions.CloudFlareAPIError as e:
             logger.error(

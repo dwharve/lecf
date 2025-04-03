@@ -124,7 +124,7 @@ class CertificateManager(BaseManager):
     def obtain_certificate(self, domains: List[str]) -> bool:
         """
         Obtain a new certificate for the specified domains.
-        
+
         Args:
             domains: List of domains to include in the certificate
 
@@ -137,15 +137,18 @@ class CertificateManager(BaseManager):
                 f"Starting certificate acquisition",
                 extra={"domains": domains, "primary_domain": primary_domain},
             )
-            
+
             # Build certbot command
             cmd = [
-                "certbot", "certonly",
+                "certbot",
+                "certonly",
                 "--dns-cloudflare",
-                "--dns-cloudflare-credentials", "/root/.secrets/cloudflare.ini",
-                "--email", self.email,
+                "--dns-cloudflare-credentials",
+                "/root/.secrets/cloudflare.ini",
+                "--email",
+                self.email,
                 "--agree-tos",
-                "--non-interactive"
+                "--non-interactive",
             ]
 
             # Add staging flag if enabled
@@ -166,11 +169,11 @@ class CertificateManager(BaseManager):
                     f"Using wildcard certificate configuration",
                     extra={"domains": domains, "wildcard": True, "propagation_wait": 60},
                 )
-            
+
             # Add all domains to the certificate
             for domain in domains:
                 cmd.extend(["-d", domain])
-            
+
             logger.debug(
                 f"Executing certbot command",
                 extra={"domains": domains, "command": " ".join(cmd)},
@@ -181,10 +184,10 @@ class CertificateManager(BaseManager):
                 f"Obtaining certificate for domains",
                 extra={"domains": domains, "primary_domain": primary_domain},
             )
-            
+
             # Execute certbot command
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 logger.debug(
                     f"Certbot output for successful certificate acquisition",
@@ -195,21 +198,25 @@ class CertificateManager(BaseManager):
                     extra={"domains": domains, "primary_domain": primary_domain},
                 )
                 return True
-            else:
-                logger.debug(
-                    f"Certbot error output for failed certificate acquisition",
-                    extra={
-                        "domains": domains,
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "returncode": result.returncode,
-                    },
-                )
-                logger.error(
-                    f"Failed to obtain certificate",
-                    extra={"domains": domains, "primary_domain": primary_domain, "error": result.stderr},
-                )
-                return False
+
+            logger.debug(
+                f"Certbot error output for failed certificate acquisition",
+                extra={
+                    "domains": domains,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode,
+                },
+            )
+            logger.error(
+                f"Failed to obtain certificate",
+                extra={
+                    "domains": domains,
+                    "primary_domain": primary_domain,
+                    "error": result.stderr,
+                },
+            )
+            return False
 
         except Exception as e:
             logger.error(
@@ -221,7 +228,7 @@ class CertificateManager(BaseManager):
     def check_certificate_expiry(self, domains: List[str]) -> bool:
         """
         Check if certificate for domains exists and needs renewal.
-        
+
         Args:
             domains: List of domains in the certificate
 
@@ -234,22 +241,30 @@ class CertificateManager(BaseManager):
                 f"Checking certificate expiry",
                 extra={"domains": domains, "primary_domain": primary_domain},
             )
-            
+
             # Use the primary domain to check the certificate
             cmd = ["certbot", "certificates", "--domain", primary_domain]
             logger.debug(
                 f"Executing certbot check command",
-                extra={"domains": domains, "primary_domain": primary_domain, "command": " ".join(cmd)},
+                extra={
+                    "domains": domains,
+                    "primary_domain": primary_domain,
+                    "command": " ".join(cmd),
+                },
             )
-            
+
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 logger.debug(
                     f"Certbot check output",
-                    extra={"domains": domains, "primary_domain": primary_domain, "stdout": result.stdout},
+                    extra={
+                        "domains": domains,
+                        "primary_domain": primary_domain,
+                        "stdout": result.stdout,
+                    },
                 )
-                
+
                 # Check if certificate exists
                 if "No certificates found." in result.stdout:
                     logger.info(
@@ -257,7 +272,7 @@ class CertificateManager(BaseManager):
                         extra={"domains": domains, "primary_domain": primary_domain},
                     )
                     return True
-                
+
                 # Extract the domains in the certificate
                 cert_domains = []
                 if "Domains:" in result.stdout:
@@ -267,7 +282,7 @@ class CertificateManager(BaseManager):
                         f"Found domains in certificate",
                         extra={"domains": domains, "cert_domains": cert_domains},
                     )
-                
+
                 # Check if all required domains are in the certificate
                 missing_domains = [d for d in domains if d not in cert_domains]
                 if missing_domains:
@@ -276,15 +291,19 @@ class CertificateManager(BaseManager):
                         extra={"domains": domains, "missing_domains": missing_domains},
                     )
                     return True
-                
+
                 # Parse the output and check for expiration date
                 if "VALID: " in result.stdout:
                     expiration_part = result.stdout.split("VALID: ")[1].split("\n")[0]
                     logger.debug(
                         f"Found expiration date in certbot output",
-                        extra={"domains": domains, "primary_domain": primary_domain, "expiration_str": expiration_part},
+                        extra={
+                            "domains": domains,
+                            "primary_domain": primary_domain,
+                            "expiration_str": expiration_part,
+                        },
                     )
-                    
+
                     try:
                         # Try to handle different date formats
                         if "days)" in expiration_part:
@@ -293,7 +312,11 @@ class CertificateManager(BaseManager):
                             days_to_expiry = int(days_str)
                             logger.debug(
                                 f"Parsed days to expiry from certbot output",
-                                extra={"domains": domains, "primary_domain": primary_domain, "days_to_expiry": days_to_expiry},
+                                extra={
+                                    "domains": domains,
+                                    "primary_domain": primary_domain,
+                                    "days_to_expiry": days_to_expiry,
+                                },
                             )
                         else:
                             # Original format assumed to be YYYY-MM-DD
@@ -308,7 +331,7 @@ class CertificateManager(BaseManager):
                                     "days_to_expiry": days_to_expiry,
                                 },
                             )
-                        
+
                         logger.debug(
                             f"Certificate expiration analysis",
                             extra={
@@ -319,7 +342,7 @@ class CertificateManager(BaseManager):
                                 "renewal_threshold": self.renewal_threshold,
                             },
                         )
-                        
+
                         if days_to_expiry <= self.renewal_threshold:
                             logger.info(
                                 f"Certificate needs renewal",
@@ -330,16 +353,16 @@ class CertificateManager(BaseManager):
                                 },
                             )
                             return True
-                        else:
-                            logger.info(
-                                f"Certificate is valid and not due for renewal",
-                                extra={
-                                    "domains": domains,
-                                    "primary_domain": primary_domain,
-                                    "days_to_expiry": days_to_expiry,
-                                },
-                            )
-                            return False
+
+                        logger.info(
+                            f"Certificate is valid and not due for renewal",
+                            extra={
+                                "domains": domains,
+                                "primary_domain": primary_domain,
+                                "days_to_expiry": days_to_expiry,
+                            },
+                        )
+                        return False
                     except ValueError as e:
                         logger.error(
                             f"Failed to parse expiration date",
@@ -359,7 +382,11 @@ class CertificateManager(BaseManager):
                 else:
                     logger.warning(
                         f"Could not find expiration date in certbot output",
-                        extra={"domains": domains, "primary_domain": primary_domain, "stdout": result.stdout},
+                        extra={
+                            "domains": domains,
+                            "primary_domain": primary_domain,
+                            "stdout": result.stdout,
+                        },
                     )
                     # No valid certificate found, obtain a new one
                     logger.info(
@@ -370,7 +397,11 @@ class CertificateManager(BaseManager):
             else:
                 logger.warning(
                     f"Error checking certificate, will obtain new one",
-                    extra={"domains": domains, "primary_domain": primary_domain, "stderr": result.stderr},
+                    extra={
+                        "domains": domains,
+                        "primary_domain": primary_domain,
+                        "stderr": result.stderr,
+                    },
                 )
                 return True
 
@@ -389,12 +420,12 @@ class CertificateManager(BaseManager):
         for i, domain_group in enumerate(self.domains):
             domain_list = list(domain_group)
             primary_domain = domain_list[0]
-            
+
             logger.debug(
                 f"Checking certificate {i+1}/{len(self.domains)}",
                 extra={"domains": domain_list, "primary_domain": primary_domain},
             )
-            
+
             # Check if certificate needs renewal
             if self.check_certificate_expiry(domain_list):
                 # Attempt to obtain/renew certificate
