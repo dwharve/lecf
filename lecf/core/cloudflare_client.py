@@ -51,7 +51,12 @@ class CloudflareClient:
                 extra={"domain": domain, "zone_name": zone_name, "action": "zones.get"},
             )
 
-            zones = self.cf.zones.get(params={"name": zone_name})
+            # Try using filters directly in the get method
+            # Different versions of the cloudflare client may require different parameter formats
+            zones = self.cf.zones.get()
+            
+            # Filter zones by name in Python instead of in the API call
+            zones = [zone for zone in zones if zone.get('name') == zone_name]
 
             logger.debug(
                 f"Received zone response from Cloudflare API",
@@ -114,10 +119,21 @@ class CloudflareClient:
                 extra={"zone_id": zone_id, "params": params, "action": "dns_records.get"},
             )
 
+            # Get all records first
+            records = self.cf.zones.dns_records.get(zone_id)
+
+            # If params are specified, filter the records in Python
             if params:
-                records = self.cf.zones.dns_records.get(zone_id, params=params)
-            else:
-                records = self.cf.zones.dns_records.get(zone_id)
+                filtered_records = []
+                for record in records:
+                    match = True
+                    for key, value in params.items():
+                        if record.get(key) != value:
+                            match = False
+                            break
+                    if match:
+                        filtered_records.append(record)
+                records = filtered_records
 
             logger.debug(
                 f"Retrieved DNS records",
@@ -163,7 +179,8 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.post(zone_id, data=record_data)
+            # Pass each key-value pair as separate arguments
+            result = self.cf.zones.dns_records.post(zone_id, **record_data)
 
             record_id = result["id"]
 
@@ -220,7 +237,8 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
+            # Pass each key-value pair as separate arguments
+            result = self.cf.zones.dns_records.put(zone_id, record_id, **record_data)
 
             logger.debug(
                 f"Updated DNS record successfully",
