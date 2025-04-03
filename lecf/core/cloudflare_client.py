@@ -103,6 +103,50 @@ class CloudflareClient:
             )
             return None, None
 
+    def get_dns_records(self, zone_id: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Get DNS records for a zone that match the specified parameters.
+        
+        Args:
+            zone_id: Cloudflare zone ID
+            params: Optional filtering parameters (name, type, etc.)
+            
+        Returns:
+            List of DNS records or empty list if none found or on error
+        """
+        try:
+            logger.debug(
+                f"Getting DNS records",
+                extra={"zone_id": zone_id, "params": params, "action": "dns_records.get"},
+            )
+            
+            records = self.cf.zones.dns_records.get(zone_id, params=params)
+            
+            logger.debug(
+                f"Retrieved DNS records",
+                extra={"zone_id": zone_id, "count": len(records) if records else 0},
+            )
+            
+            return records or []
+        except cloudflare.exceptions.CloudFlareAPIError as e:
+            logger.error(
+                f"Cloudflare API error when getting DNS records",
+                extra={
+                    "zone_id": zone_id,
+                    "params": params,
+                    "error_code": e.code,
+                    "error": str(e),
+                    "details": getattr(e, "details", None),
+                },
+            )
+            return []
+        except Exception as e:
+            logger.error(
+                f"Failed to get DNS records",
+                extra={"zone_id": zone_id, "error": str(e), "error_type": type(e).__name__},
+            )
+            return []
+
     def create_dns_record(self, zone_id: str, record_data: Dict[str, Any]) -> Optional[str]:
         """
         Create a DNS record.
@@ -278,64 +322,3 @@ class CloudflareClient:
                 },
             )
             return False
-
-    def get_dns_records(self, zone_id: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """
-        Get DNS records for a zone.
-
-        Args:
-            zone_id: Cloudflare zone ID
-            params: Additional parameters for filtering
-
-        Returns:
-            List of DNS records
-        """
-        try:
-            logger.debug(
-                f"Getting DNS records",
-                extra={"zone_id": zone_id, "params": params, "action": "dns_records.get"},
-            )
-
-            records = self.cf.zones.dns_records.get(zone_id, params=params or {})
-
-            # Log detailed information about the records
-            record_details = [
-                {
-                    "id": r.get("id", "unknown"),
-                    "name": r.get("name", "unknown"),
-                    "type": r.get("type", "unknown"),
-                    "content": r.get("content", "unknown"),
-                    "proxied": r.get("proxied", False),
-                }
-                for r in records[:5]  # Limit to first 5 to avoid excessive logging
-            ]
-
-            logger.debug(
-                f"Found {len(records)} DNS records",
-                extra={
-                    "zone_id": zone_id,
-                    "record_count": len(records),
-                    "record_details": record_details,
-                    "has_more": len(records) > 5,
-                },
-            )
-
-            return records
-        except cloudflare.exceptions.CloudFlareAPIError as e:
-            logger.error(
-                f"Cloudflare API error when getting DNS records",
-                extra={
-                    "zone_id": zone_id,
-                    "params": params,
-                    "error_code": e.code,
-                    "error": str(e),
-                    "details": getattr(e, "details", None),
-                },
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                f"Failed to get DNS records",
-                extra={"zone_id": zone_id, "error": str(e), "error_type": type(e).__name__},
-            )
-            return []

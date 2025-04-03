@@ -65,7 +65,7 @@ def schedule_managers(run_once: bool = False) -> None:
     for manager_key in AVAILABLE_MANAGERS:
         try:
             managers[manager_key] = initialize_manager(manager_key)
-            logger.info(f"Initialized {manager_key} manager")
+            logger.debug(f"Initialized {manager_key} manager")
         except Exception as e:
             logger.error(
                 f"Failed to initialize {manager_key} manager, service will be unavailable",
@@ -80,14 +80,14 @@ def schedule_managers(run_once: bool = False) -> None:
     for key, manager in managers.items():
         # Run initial cycle
         try:
-            logger.info(f"Running initial {key} cycle")
+            logger.debug(f"Running initial {key} cycle")
             manager.run()
         except Exception as e:
             logger.error(f"Error during initial {key} cycle", extra={"error": str(e)})
 
         # Schedule periodic runs
         interval, unit = manager.get_schedule_info()
-        logger.info(f"Scheduling {key} service to run every {interval} {unit}")
+        logger.debug(f"Scheduling {key} service to run every {interval} {unit}")
 
         # Configure schedule based on interval unit
         if unit == "minutes":
@@ -103,7 +103,7 @@ def schedule_managers(run_once: bool = False) -> None:
     # Log next scheduled runs for all services
     pending_jobs = schedule.get_jobs()
     for job in pending_jobs:
-        logger.info(f"Next run for job: {job.next_run}")
+        logger.debug(f"Next run for job: {job.next_run}")
 
     # Early return for tests
     if run_once:
