@@ -54,9 +54,54 @@ class CloudflareClient:
             
             # Try using the internal _request method if it exists
             if self.has_request:
-                result = self.cf._request(method=method, url=path, params=params, json_data=data)
-                logger.debug(f"Direct API request successful")
-                return result
+                # The Cloudflare client doesn't accept 'method' as a parameter - it uses different methods
+                # for different HTTP verbs, and the method name is inferred from the function name.
+                # So we need to call the appropriate method based on the HTTP verb.
+                if method.lower() == 'get':
+                    result = self.cf._request(url=path, params=params)
+                    logger.debug(f"Direct API GET request successful")
+                    return result
+                elif method.lower() == 'post':
+                    result = self.cf._request(url=path, json_data=data, params=params)
+                    logger.debug(f"Direct API POST request successful")
+                    return result
+                elif method.lower() == 'put':
+                    # Some clients might not support PUT directly
+                    try:
+                        result = self.cf._request(url=path, json_data=data, params=params, method='put')
+                        logger.debug(f"Direct API PUT request successful")
+                        return result
+                    except TypeError:
+                        # If 'method' param not supported, try another approach
+                        logger.debug(f"PUT method not directly supported, attempting to use alternative")
+                        # Try different function name pattern if available
+                        if hasattr(self.cf, '_request_put'):
+                            result = self.cf._request_put(url=path, json_data=data, params=params)
+                            logger.debug(f"Direct API PUT request successful via _request_put")
+                            return result
+                        else:
+                            logger.error(f"Client does not support PUT requests")
+                            return None
+                elif method.lower() == 'delete':
+                    # Some clients might not support DELETE directly
+                    try:
+                        result = self.cf._request(url=path, params=params, method='delete')
+                        logger.debug(f"Direct API DELETE request successful")
+                        return result
+                    except TypeError:
+                        # If 'method' param not supported, try another approach
+                        logger.debug(f"DELETE method not directly supported, attempting to use alternative")
+                        # Try different function name pattern if available
+                        if hasattr(self.cf, '_request_delete'):
+                            result = self.cf._request_delete(url=path, params=params)
+                            logger.debug(f"Direct API DELETE request successful via _request_delete")
+                            return result
+                        else:
+                            logger.error(f"Client does not support DELETE requests")
+                            return None
+                else:
+                    logger.error(f"Unsupported HTTP method", extra={"method": method})
+                    return None
             else:
                 logger.error(f"Client does not support direct API requests")
                 return None
