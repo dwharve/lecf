@@ -16,6 +16,8 @@ A microservice that automatically manages Let's Encrypt certificates using Cloud
 - Unified architecture with inheritance-based design
 - Modular architecture with shared components
 - Centralized scheduling for better resource management
+- YAML configuration for more complex setups
+- Flexible credential management (keep in .env or config.yaml)
 
 ## Prerequisites
 
@@ -29,15 +31,31 @@ A microservice that automatically manages Let's Encrypt certificates using Cloud
 ### Local Installation
 
 1. Clone this repository
-2. Use the management script to set up the environment:
+2. Set up the development environment:
    ```powershell
-   .\manage.ps1 -Action setup -Environment local
+   # Run the setup script
+   .\activate.ps1
    ```
    
    This will:
    - Create a virtual environment
-   - Install the required Python packages
-   - Create a `.env` file from the template
+   - Install the package in development mode
+   - Install all required dependencies
+   
+3. Create your configuration files:
+   ```powershell
+   Copy-Item .env.example .env
+   Copy-Item config.yaml.example config.yaml
+   ```
+   
+4. Edit the `.env` file with your sensitive configuration
+5. Edit the `config.yaml` file with your general configuration
+
+### Installation from PyPI (when published)
+
+```bash
+pip install lecf
+```
 
 ### Docker Installation
 
@@ -50,241 +68,122 @@ A microservice that automatically manages Let's Encrypt certificates using Cloud
    This will:
    - Build the Docker images
    
-3. Create your `.env` file:
+3. Create your configuration files:
    ```powershell
    Copy-Item .env.example .env
+   Copy-Item config.yaml.example config.yaml
    ```
    
-4. Edit the `.env` file with your configuration
+4. Edit the `.env` file with your sensitive configuration
+5. Edit the `config.yaml` file with your general configuration
 
 ## Configuration
 
-1. Copy `.env.example` to `.env` (if not already done in setup):
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+LECF now uses a dual configuration approach:
 
-2. Edit `.env` and configure:
-   - `CLOUDFLARE_API_TOKEN`: Your Cloudflare API token
-   - `CERTBOT_EMAIL`: Your email address
-   - `DOMAINS`: Comma-separated list of domains for certificates
-   - `DDNS_DOMAINS`: Domains for DDNS updates (format: `domain.com:@,www;another.com:@,sub`)
-   - Other settings as needed
+1. **Sensitive data** is typically stored in `.env` file
+2. **General configuration** is stored in `config.yaml` file
 
-## Usage
+### Environment Variables (`.env`)
 
-### Using the Management Script
-
-The system includes a PowerShell management script (`manage.ps1`) that provides a unified interface for both local and Docker environments:
-
-```powershell
-.\manage.ps1 -Action [action] -Service [service] -Environment [environment]
-```
-
-Where:
-- `[action]` is one of: `start`, `stop`, `restart`, `status`, `logs`, `build`, or `setup`
-- `[service]` is one of: `all`, `cert`, `ddns`, or `docker` (default: `all`)
-- `[environment]` is one of: `local` or `docker` (default: `local`)
-
-Examples:
-
-```powershell
-# Set up the local environment
-.\manage.ps1 -Action setup -Environment local
-
-# Start all services locally
-.\manage.ps1 -Action start -Service all
-
-# Start only the DDNS service locally
-.\manage.ps1 -Action start -Service ddns
-
-# Start all services in Docker
-.\manage.ps1 -Action start -Environment docker
-
-# Show logs for the certificate manager in Docker
-.\manage.ps1 -Action logs -Service cert -Environment docker
-
-# Stop all Docker services
-.\manage.ps1 -Action stop -Environment docker
-```
-
-### Manual Local Usage
-
-Run the main script directly:
-```powershell
-python main.py --service [service]
-```
-
-Where `[service]` is one of: `all`, `cert`, or `ddns` (default: `all`)
-
-### Manual Docker Usage
-
-Start all services:
-```powershell
-docker-compose up -d
-```
-
-Start only the certificate manager:
-```powershell
-docker-compose up -d cert-manager
-```
-
-Start only the DDNS manager:
-```powershell
-docker-compose up -d ddns-manager
-```
-
-Start the all-in-one service (both managers in one container):
-```powershell
-docker-compose up -d all-in-one
-```
-
-View logs:
-```powershell
-docker-compose logs -f
-```
-
-Stop all services:
-```powershell
-docker-compose down
-```
-
-## System Architecture
-
-The system consists of the following components:
-
-1. **Base Manager**: Abstract base class defining the service manager interface
-2. **Certificate Manager**: Handles Let's Encrypt certificate issuance and renewal using Cloudflare DNS for validation
-3. **DDNS Manager**: Updates Cloudflare DNS records with your current public IP address
-4. **Shared Utilities**: Common utilities for logging, configuration, and Cloudflare API interaction
-5. **Main Entry Point**: A unified script that runs and schedules all services
-6. **Management Script**: A PowerShell script for easy management of all components
-
-The system uses a modular architecture with these main components:
-
-- **base_manager.py**: Abstract base class that all service managers inherit from
-- **utils.py**: Shared utilities for logging, environment variable handling, and configuration
-- **cloudflare_client.py**: Shared client for Cloudflare API interaction
-- **certificate_manager.py**: Certificate management functionality 
-- **ddns_manager.py**: DDNS update functionality
-- **main.py**: Entry point that discovers, initializes and schedules all service managers
-- **manage.ps1**: PowerShell management interface
-
-All scheduling is centralized in the main module using a common interface defined by the BaseManager class. This ensures consistent behavior across services and makes adding new service types straightforward.
-
-### Service Manager Hierarchy
+The `.env` file typically contains sensitive information like API tokens:
 
 ```
-     ┌───────────────┐
-     │  BaseManager  │
-     └───────┬───────┘
-             │
-     ┌───────┴───────┐
-     │               │
-┌────▼────┐    ┌─────▼────┐
-│Certificate│   │  DDNS    │
-│ Manager   │   │ Manager  │
-└───────────┘   └──────────┘
+# Required Configuration
+CLOUDFLARE_API_TOKEN=your_cloudflare_api_token  # Can also be in config.yaml
+CERTBOT_EMAIL=your_email@example.com  # Can also be in config.yaml
 ```
 
-Each manager:
-1. Inherits from BaseManager
-2. Implements `_setup_interval()` to define its scheduling requirements
-3. Implements `_execute_cycle()` to perform its specific operations
-4. Uses the common `run()` method for consistent execution flow
+### YAML Configuration (`config.yaml`)
 
-### Simplified Deployment
+The `config.yaml` file contains all general configuration and supports more complex structures:
 
-With the new unified architecture, there's only one way to run the application - with all services enabled. This simplifies deployment, reduces configuration complexity, and ensures consistent behavior across environments.
+```yaml
+# Domains Configuration
+domains:
+  - example.com,www.example.com  # Domain group 1
+  - another.com,*.another.com    # Domain group 2 with wildcard
 
-## Testing and Linting
+# DDNS Configuration
+ddns:
+  domains: example.com:@,www;another.com:@,sub
+  check_interval_minutes: 15
+  record_types: A
 
-The system includes comprehensive testing and linting tools to ensure code quality and reliability.
+# Certificate Configuration
+certificate:
+  renewal_threshold_days: 30
+  check_interval_hours: 12
+  cert_dir: /etc/letsencrypt/live
 
-### Running Tests
+# Cloudflare Configuration
+cloudflare:
+  email: your_email@example.com  # Used for certificate registration
+  # You can specify the API token here, though it's more secure in .env
+  # api_token: your_cloudflare_api_token
 
-Use the management script to run tests:
-
-```powershell
-# Run all tests
-.\manage.ps1 -Action test -Service all
-
-# Run only utility tests
-.\manage.ps1 -Action test -Service utils
-
-# Run only base manager tests
-.\manage.ps1 -Action test -Service base
+# Logging Configuration
+logging:
+  level: INFO
+  # file: /var/log/lecf.log  # Uncomment to enable file logging
 ```
 
-The tests cover:
-- Utility modules (utils.py, cloudflare_client.py)
-- Base Manager functionality
-- Scheduling mechanisms
+### Configuration Precedence
 
-### Linting the Code
+LECF will look for configuration in the following order:
+1. YAML configuration file
+2. Environment variables
+3. Default values
 
-The system uses flake8 and mypy for code quality checks:
+This allows you to use whichever approach is most convenient for your setup.
 
-```powershell
-# Lint all code
-.\manage.ps1 -Action lint -Service all
+### Security Considerations for API Token
 
-# Lint only utils
-.\manage.ps1 -Action lint -Service utils
+For best security, we recommend storing the Cloudflare API token in the `.env` file rather than in the YAML configuration. However, both options are supported:
 
-# Lint only manager modules
-.\manage.ps1 -Action lint -Service managers
+1. **More Secure**: Store the API token in `.env` file only
+2. **More Convenient**: Store the API token in `config.yaml` under the `cloudflare` section
 
-# Lint only test modules
-.\manage.ps1 -Action lint -Service tests
+The system will check both locations and use whichever one is specified.
+
+### DDNS Configuration
+
+The DDNS feature requires the following configuration in your `config.yaml` file:
+
+#### Configuration Format
+
+DDNS configuration must be defined in the `config.yaml` file using the following format:
+
+```yaml
+ddns:
+  domains:
+    - domain: example.com
+      subdomains: "@,www"
+      record_types: A,AAAA  # This domain gets both IPv4 and IPv6 records
+    - domain: another-example.com
+      subdomains: "@,subdomain"
+      record_types: A       # This domain gets only IPv4 records
+  check_interval_minutes: 15
 ```
 
-Linting helps ensure:
-- Consistent code style
-- Type safety
-- Best practices adherence
+This allows you to:
+- Configure different record types for different domains
+- Configure some domains with IPv4 only (A records)
+- Configure other domains with both IPv4 and IPv6 (A and AAAA records)
+- Add TXT or other record types as needed per domain
 
-## Certificate Storage
-
-When using Docker, certificates are stored in the `./certificates` directory, which is mounted as a volume to `/etc/letsencrypt` in the container. This ensures that certificates persist between container restarts.
-
-## Logging
-
-Logs are output in JSON format and include:
-- Certificate operations
-- DNS record management
-- DDNS updates
-- Errors and warnings
-- Renewal attempts
-
-## DDNS Configuration
-
-The DDNS manager supports updating multiple domains and subdomains with your current public IP address. Configure it using these environment variables:
-
-- `DDNS_DOMAINS`: Domains and subdomains to update in the format: `domain.com:subdomain1,subdomain2;domain2.com:subdomain1,@`
-  - Use `@` to represent the root domain
-  - Separate domains with semicolons (`;`)
-  - Separate subdomains with commas (`,`)
-- `DDNS_CHECK_INTERVAL_MINUTES`: How often to check for IP changes (default: 15 minutes)
-- `DDNS_RECORD_TYPES`: DNS record types to update (default: A)
-
-Example configuration:
-```
-DDNS_DOMAINS=example.com:@,www,home;anotherdomain.com:@,www
-DDNS_CHECK_INTERVAL_MINUTES=15
-DDNS_RECORD_TYPES=A
-```
+If no record types are specified for a domain, A records (IPv4) will be used by default.
 
 This will update the following DNS records when your IP changes:
-- example.com
-- www.example.com
-- home.example.com
-- anotherdomain.com
-- www.anotherdomain.com
+- example.com (A and AAAA records)
+- www.example.com (A and AAAA records)
+- another-example.com (A records only)
+- subdomain.another-example.com (A records only)
 
 ## Security Considerations
 
-- The Cloudflare API token is stored securely in `/root/.secrets/cloudflare.ini`
+- The Cloudflare API token can be stored in either `.env` file (more secure) or YAML configuration
+- API token stored in `/root/.secrets/cloudflare.ini` with secure permissions
 - File permissions are set to be readable only by root
 - Environment variables are used for sensitive configuration
 - Staging environment support for testing

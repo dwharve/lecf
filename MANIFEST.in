@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include requirements.txt
+include .env.example
+include pyproject.toml
+recursive-include lecf *.py
+recursive-include bin * 

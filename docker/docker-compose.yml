@@ -1,15 +1,16 @@
 version: '3'
 
 services:
-  cloudflare-manager:
+  lecf:
     build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cloudflare-manager
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: lecf
     restart: unless-stopped
     volumes:
-      - ./certificates:/etc/letsencrypt
-      - ./.env:/app/.env:ro
+      - ../certificates:/etc/letsencrypt
+      - ../.env:/app/.env:ro
+      - ../config.yaml:/app/config.yaml:ro
     environment:
       - TZ=UTC
     logging:

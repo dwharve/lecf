@@ -5,3 +5,4 @@ schedule
 cryptography
 requests
 python-json-logger
+pyyaml
