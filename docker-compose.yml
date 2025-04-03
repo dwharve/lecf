@@ -1,0 +1,19 @@
+version: '3'
+
+services:
+  cert-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cert-manager
+    restart: unless-stopped
+    volumes:
+      - ./certificates:/etc/letsencrypt
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=UTC
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3" 
