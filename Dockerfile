@@ -18,6 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Copy application code
 COPY certificate_manager.py .
 COPY setup_cloudflare.py .
+COPY ddns_manager.py .
+COPY main.py .
+COPY utils.py .
+COPY cloudflare_client.py .
+COPY base_manager.py .
 COPY .env.example .
 
 # Create directory for certificates and secrets
@@ -37,11 +42,8 @@ if [ ! -f /app/.env ]; then\n\
   exit 1\n\
 fi\n\
 \n\
-# Run setup script\n\
-python /app/setup_cloudflare.py\n\
-\n\
-# Start the certificate manager\n\
-exec python /app/certificate_manager.py\n\
+# Start the application\n\
+exec python /app/main.py\n\
 ' > /app/entrypoint.sh \
     && chmod +x /app/entrypoint.sh
 

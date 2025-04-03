@@ -1,11 +1,11 @@
 version: '3'
 
 services:
-  cert-manager:
+  cloudflare-manager:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cert-manager
+    container_name: cloudflare-manager
     restart: unless-stopped
     volumes:
       - ./certificates:/etc/letsencrypt
