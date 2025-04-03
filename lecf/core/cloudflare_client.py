@@ -18,7 +18,7 @@ class CloudflareClient:
             api_token: Cloudflare API token. If None, fetched from config.
         """
         cf_config = config.get_cloudflare_config(config.APP_CONFIG)
-        self.cf = cloudflare.Client(token=api_token or cf_config["api_token"])
+        self.cf = cloudflare.Client(api_token=api_token or cf_config["api_token"])
         logger.debug("CloudflareClient initialized")
 
     def get_zone_id(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
