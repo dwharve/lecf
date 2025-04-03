@@ -51,7 +51,7 @@ class CloudflareClient:
                 extra={"domain": domain, "zone_name": zone_name, "action": "zones.get"},
             )
 
-            zones = self.cf.zones.get(name=zone_name)
+            zones = self.cf.zones.get(params={"name": zone_name})
 
             logger.debug(
                 f"Received zone response from Cloudflare API",
@@ -115,7 +115,7 @@ class CloudflareClient:
             )
 
             if params:
-                records = self.cf.zones.dns_records.get(zone_id, **params)
+                records = self.cf.zones.dns_records.get(zone_id, params=params)
             else:
                 records = self.cf.zones.dns_records.get(zone_id)
 
@@ -163,7 +163,7 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.post(zone_id, **record_data)
+            result = self.cf.zones.dns_records.post(zone_id, data=record_data)
 
             record_id = result["id"]
 
@@ -220,7 +220,7 @@ class CloudflareClient:
                 },
             )
 
-            result = self.cf.zones.dns_records.put(zone_id, record_id, **record_data)
+            result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
 
             logger.debug(
                 f"Updated DNS record successfully",
