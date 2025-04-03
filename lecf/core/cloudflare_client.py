@@ -61,36 +61,36 @@ class CloudflareClient:
             )
 
             # Try multiple methods to get the zones
-            zones = []
+            zones_result = None
             methods_tried = []
             
             # Method 1: Try using zones.list() if available
             if self.has_zones_list:
                 try:
                     methods_tried.append("zones.list()")
-                    zones = self.cf.zones.list()
+                    zones_result = self.cf.zones.list()
                     logger.debug(f"Successfully retrieved zones using zones.list()")
                 except Exception as e1:
                     logger.debug(f"Failed to get zones using list method", 
                                  extra={"error": str(e1), "error_type": type(e1).__name__})
             
             # Method 2: Try direct call to zones() as a callable
-            if not zones:
+            if not zones_result:
                 try:
                     methods_tried.append("zones()")
-                    zones = self.cf.zones()
+                    zones_result = self.cf.zones()
                     logger.debug(f"Successfully retrieved zones using zones()")
                 except Exception as e2:
                     logger.debug(f"Failed to get zones using direct call", 
                                  extra={"error": str(e2), "error_type": type(e2).__name__})
             
             # Method 3: Try client.list_zones()
-            if not zones:
+            if not zones_result:
                 try:
                     methods_tried.append("client.list_zones()")
                     # Some versions of the client have a list_zones method
                     if hasattr(self.cf, 'list_zones'):
-                        zones = self.cf.list_zones()
+                        zones_result = self.cf.list_zones()
                         logger.debug(f"Successfully retrieved zones using client.list_zones()")
                 except Exception as e3:
                     logger.debug(f"Failed to get zones using list_zones method", 
@@ -98,12 +98,29 @@ class CloudflareClient:
                     
             logger.debug(f"Attempted zone retrieval methods", extra={"methods_tried": methods_tried})
             
-            if not zones:
+            if not zones_result:
                 logger.error(f"Could not retrieve zones with any method", 
                              extra={"methods_tried": methods_tried})
                 return None, None
             
             # Log the type of what we're dealing with to understand the structure
+            logger.debug(f"Zones result type", extra={"type": type(zones_result).__name__})
+            
+            # Convert pagination array to a list if needed
+            zones = []
+            try:
+                # If it's iterable, convert to list
+                for zone in zones_result:
+                    zones.append(zone)
+                
+                logger.debug(f"Successfully converted zones result to list", 
+                            extra={"zones_count": len(zones)})
+            except Exception as e:
+                logger.error(f"Failed to iterate through zones result", 
+                            extra={"error": str(e), "error_type": type(e).__name__})
+                return None, None
+            
+            # Log sample zone information if available
             if zones and len(zones) > 0:
                 first_zone_type = type(zones[0]).__name__
                 logger.debug(f"First zone is of type", extra={"zone_type": first_zone_type})
@@ -248,21 +265,38 @@ class CloudflareClient:
             )
 
             # Try to get DNS records with the zone_id
-            records = []
+            records_result = None
             methods_tried = []
 
             # Method 1: Try directly with zone_id
             try:
                 methods_tried.append("dns_records.get(zone_id)")
-                records = self.cf.zones.dns_records.get(zone_id)
+                records_result = self.cf.zones.dns_records.get(zone_id)
                 logger.debug(f"Successfully retrieved DNS records using dns_records.get(zone_id)")
             except Exception as e1:
                 logger.debug(f"Failed to get DNS records using direct method", 
-                            extra={"error": str(e1), "error_type": type(e1).__name__})
+                           extra={"error": str(e1), "error_type": type(e1).__name__})
             
-            if not records:
+            if not records_result:
                 logger.error(f"Could not retrieve DNS records with any method", 
-                            extra={"methods_tried": methods_tried, "zone_id": zone_id})
+                           extra={"methods_tried": methods_tried, "zone_id": zone_id})
+                return []
+                
+            # Log the type of what we're dealing with to understand the structure
+            logger.debug(f"DNS records result type", extra={"type": type(records_result).__name__})
+            
+            # Convert pagination array to a list if needed
+            records = []
+            try:
+                # If it's iterable, convert to list
+                for record in records_result:
+                    records.append(record)
+                
+                logger.debug(f"Successfully converted DNS records result to list", 
+                           extra={"records_count": len(records)})
+            except Exception as e:
+                logger.error(f"Failed to iterate through DNS records result", 
+                           extra={"error": str(e), "error_type": type(e).__name__})
                 return []
 
             # If params are specified, filter the records in Python
@@ -398,6 +432,7 @@ class CloudflareClient:
                 methods_tried.append("dns_records.post(zone_id, **record_data)")
                 result = self.cf.zones.dns_records.post(zone_id, **record_data)
                 logger.debug(f"Successfully created DNS record using dns_records.post(zone_id, **record_data)")
+                logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
                 logger.debug(f"Failed to create DNS record using **record_data method", 
                             extra={"error": str(e1), "error_type": type(e1).__name__})
@@ -407,6 +442,7 @@ class CloudflareClient:
                     methods_tried.append("dns_records.post(zone_id, data=record_data)")
                     result = self.cf.zones.dns_records.post(zone_id, data=record_data)
                     logger.debug(f"Successfully created DNS record using dns_records.post(zone_id, data=record_data)")
+                    logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
                     logger.debug(f"Failed to create DNS record using data=record_data method", 
                                 extra={"error": str(e2), "error_type": type(e2).__name__})
@@ -422,11 +458,39 @@ class CloudflareClient:
             # Try as attribute
             if hasattr(result, 'id'):
                 record_id = result.id
+                logger.debug(f"Extracted record ID as attribute", extra={"record_id": record_id})
             
             # Try as dictionary
             if record_id is None:
                 try:
                     record_id = result["id"]
+                    logger.debug(f"Extracted record ID as dictionary key", extra={"record_id": record_id})
+                except:
+                    pass
+                    
+            # Try to access 'result' property in case the API returns a wrapper object
+            if record_id is None and hasattr(result, 'result'):
+                try:
+                    inner_result = result.result
+                    if hasattr(inner_result, 'id'):
+                        record_id = inner_result.id
+                        logger.debug(f"Extracted record ID from result.result attribute", extra={"record_id": record_id})
+                    else:
+                        try:
+                            record_id = inner_result["id"]
+                            logger.debug(f"Extracted record ID from result.result dictionary", extra={"record_id": record_id})
+                        except:
+                            pass
+                except:
+                    pass
+            
+            # If it's a dictionary with a 'result' key
+            if record_id is None and isinstance(result, dict) and 'result' in result:
+                try:
+                    inner_result = result['result']
+                    if isinstance(inner_result, dict) and 'id' in inner_result:
+                        record_id = inner_result['id']
+                        logger.debug(f"Extracted record ID from result['result'] dictionary", extra={"record_id": record_id})
                 except:
                     pass
             
@@ -435,6 +499,23 @@ class CloudflareClient:
                     f"Failed to extract record ID from result",
                     extra={"zone_id": zone_id, "result_type": type(result).__name__},
                 )
+                # Log more details about the result to help debug
+                try:
+                    result_repr = str(result)
+                    if len(result_repr) > 1000:
+                        result_repr = result_repr[:1000] + "... (truncated)"
+                    logger.debug(f"Result content", extra={"content": result_repr})
+                    
+                    # If it's a complex object, try to get its attributes or keys
+                    if hasattr(result, '__dict__'):
+                        attrs = list(result.__dict__.keys())
+                        logger.debug(f"Result attributes", extra={"attributes": attrs})
+                    elif isinstance(result, dict):
+                        keys = list(result.keys())
+                        logger.debug(f"Result keys", extra={"keys": keys})
+                except Exception as e:
+                    logger.debug(f"Error inspecting result", extra={"error": str(e)})
+                    
                 return None
 
             logger.debug(
@@ -497,6 +578,7 @@ class CloudflareClient:
                 methods_tried.append("dns_records.put(zone_id, record_id, **record_data)")
                 result = self.cf.zones.dns_records.put(zone_id, record_id, **record_data)
                 logger.debug(f"Successfully updated DNS record using dns_records.put(zone_id, record_id, **record_data)")
+                logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
                 logger.debug(f"Failed to update DNS record using **record_data method", 
                             extra={"error": str(e1), "error_type": type(e1).__name__})
@@ -506,6 +588,7 @@ class CloudflareClient:
                     methods_tried.append("dns_records.put(zone_id, record_id, data=record_data)")
                     result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
                     logger.debug(f"Successfully updated DNS record using dns_records.put(zone_id, record_id, data=record_data)")
+                    logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
                     logger.debug(f"Failed to update DNS record using data=record_data method", 
                                 extra={"error": str(e2), "error_type": type(e2).__name__})
@@ -514,7 +597,10 @@ class CloudflareClient:
                 logger.error(f"Could not update DNS record with any method", 
                             extra={"methods_tried": methods_tried, "zone_id": zone_id, "record_id": record_id})
                 return False
-
+                
+            # If we need to check the result for success, we can add similar extraction logic as in create_dns_record
+            # For now, if we got a result without an exception, consider it successful
+            
             logger.debug(
                 f"Updated DNS record successfully",
                 extra={
