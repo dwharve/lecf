@@ -35,26 +35,45 @@ class CloudflareClient:
             return None, None
         
         logger.debug(f"Looking up zone for domain", 
-                   extra={'domain': domain, 'zone_name': zone_name})
+                   extra={'domain': domain, 'zone_name': zone_name, 'domain_parts': parts})
             
         try:
             # Get zone ID
+            logger.debug(f"Sending Cloudflare API request for zone", 
+                       extra={'domain': domain, 'zone_name': zone_name, 'action': 'zones.get'})
+            
             zones = self.cf.zones.get(params={'name': zone_name})
+            logger.debug(f"Received zone response from Cloudflare API", 
+                       extra={'domain': domain, 'zone_name': zone_name, 'zones_found': len(zones) if zones else 0})
+            
             if not zones:
                 logger.error(f"No zone found for domain", 
-                           extra={'domain': domain, 'zone_name': zone_name})
+                           extra={'domain': domain, 'zone_name': zone_name, 'reason': 'empty_response'})
                 return None, None
                 
             zone = zones[0]
             zone_id = zone['id']
+            actual_zone_name = zone.get('name', zone_name)
             
             logger.debug(f"Found zone for domain", 
-                        extra={'domain': domain, 'zone_name': zone_name, 'zone_id': zone_id})
+                        extra={
+                            'domain': domain, 
+                            'zone_name': zone_name, 
+                            'actual_zone_name': actual_zone_name,
+                            'zone_id': zone_id,
+                            'zone_status': zone.get('status')
+                        })
             
-            return zone_id, zone_name
+            return zone_id, actual_zone_name
         except CloudFlare.exceptions.CloudFlareAPIError as e:
             logger.error(f"Cloudflare API error when getting zone ID", 
-                       extra={'domain': domain, 'error_code': e.code, 'error': str(e)})
+                       extra={
+                           'domain': domain, 
+                           'zone_name': zone_name, 
+                           'error_code': e.code, 
+                           'error': str(e),
+                           'details': getattr(e, 'details', None)
+                       })
             return None, None
         except Exception as e:
             logger.error(f"Failed to get zone ID for domain", 
@@ -73,19 +92,40 @@ class CloudflareClient:
             Record ID if successful, None otherwise
         """
         try:
+            record_name = record_data.get('name', 'unknown')
+            record_type = record_data.get('type', 'unknown')
+            
             logger.debug(f"Creating DNS record", 
-                       extra={'zone_id': zone_id, 'record_data': record_data})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_data': record_data,
+                           'record_name': record_name,
+                           'record_type': record_type,
+                           'action': 'dns_records.post'
+                       })
             
             result = self.cf.zones.dns_records.post(zone_id, data=record_data)
             record_id = result['id']
             
             logger.debug(f"Created DNS record successfully", 
-                       extra={'zone_id': zone_id, 'record_id': record_id})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_id': record_id,
+                           'record_name': record_name,
+                           'record_type': record_type,
+                           'api_response': result
+                       })
             
             return record_id
         except CloudFlare.exceptions.CloudFlareAPIError as e:
             logger.error(f"Cloudflare API error when creating DNS record", 
-                       extra={'zone_id': zone_id, 'error_code': e.code, 'error': str(e)})
+                       extra={
+                           'zone_id': zone_id,
+                           'record_data': record_data,
+                           'error_code': e.code, 
+                           'error': str(e),
+                           'details': getattr(e, 'details', None)
+                       })
             return None
         except Exception as e:
             logger.error(f"Failed to create DNS record", 
@@ -105,18 +145,41 @@ class CloudflareClient:
             True if successful, False otherwise
         """
         try:
-            logger.debug(f"Updating DNS record", 
-                       extra={'zone_id': zone_id, 'record_id': record_id})
+            record_name = record_data.get('name', 'unknown')
+            record_type = record_data.get('type', 'unknown')
+            record_content = record_data.get('content', 'unknown')
             
-            self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
+            logger.debug(f"Updating DNS record", 
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_id': record_id,
+                           'record_name': record_name,
+                           'record_type': record_type,
+                           'record_content': record_content,
+                           'action': 'dns_records.put'
+                       })
+            
+            result = self.cf.zones.dns_records.put(zone_id, record_id, data=record_data)
             
             logger.debug(f"Updated DNS record successfully", 
-                       extra={'zone_id': zone_id, 'record_id': record_id})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_id': record_id,
+                           'record_name': record_name,
+                           'api_response': result
+                       })
             
             return True
         except CloudFlare.exceptions.CloudFlareAPIError as e:
             logger.error(f"Cloudflare API error when updating DNS record", 
-                       extra={'zone_id': zone_id, 'record_id': record_id, 'error_code': e.code, 'error': str(e)})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_id': record_id, 
+                           'record_data': record_data,
+                           'error_code': e.code, 
+                           'error': str(e),
+                           'details': getattr(e, 'details', None)
+                       })
             return False
         except Exception as e:
             logger.error(f"Failed to update DNS record", 
@@ -136,7 +199,7 @@ class CloudflareClient:
         """
         try:
             logger.debug(f"Deleting DNS record", 
-                       extra={'zone_id': zone_id, 'record_id': record_id})
+                       extra={'zone_id': zone_id, 'record_id': record_id, 'action': 'dns_records.delete'})
             
             self.cf.zones.dns_records.delete(zone_id, record_id)
             
@@ -146,7 +209,13 @@ class CloudflareClient:
             return True
         except CloudFlare.exceptions.CloudFlareAPIError as e:
             logger.error(f"Cloudflare API error when deleting DNS record", 
-                       extra={'zone_id': zone_id, 'record_id': record_id, 'error_code': e.code, 'error': str(e)})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_id': record_id, 
+                           'error_code': e.code, 
+                           'error': str(e),
+                           'details': getattr(e, 'details', None)
+                       })
             return False
         except Exception as e:
             logger.error(f"Failed to delete DNS record", 
@@ -166,17 +235,40 @@ class CloudflareClient:
         """
         try:
             logger.debug(f"Getting DNS records", 
-                       extra={'zone_id': zone_id, 'params': params})
+                       extra={'zone_id': zone_id, 'params': params, 'action': 'dns_records.get'})
             
             records = self.cf.zones.dns_records.get(zone_id, params=params or {})
             
+            # Log detailed information about the records
+            record_details = [
+                {
+                    'id': r.get('id', 'unknown'),
+                    'name': r.get('name', 'unknown'),
+                    'type': r.get('type', 'unknown'),
+                    'content': r.get('content', 'unknown'),
+                    'proxied': r.get('proxied', False)
+                }
+                for r in records[:5]  # Limit to first 5 to avoid excessive logging
+            ]
+            
             logger.debug(f"Found {len(records)} DNS records", 
-                       extra={'zone_id': zone_id, 'record_count': len(records)})
+                       extra={
+                           'zone_id': zone_id, 
+                           'record_count': len(records),
+                           'record_details': record_details,
+                           'has_more': len(records) > 5
+                       })
             
             return records
         except CloudFlare.exceptions.CloudFlareAPIError as e:
             logger.error(f"Cloudflare API error when getting DNS records", 
-                       extra={'zone_id': zone_id, 'error_code': e.code, 'error': str(e)})
+                       extra={
+                           'zone_id': zone_id, 
+                           'params': params,
+                           'error_code': e.code, 
+                           'error': str(e),
+                           'details': getattr(e, 'details', None)
+                       })
             return []
         except Exception as e:
             logger.error(f"Failed to get DNS records", 

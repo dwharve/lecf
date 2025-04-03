@@ -17,7 +17,9 @@ class DdnsManager(BaseManager):
         self.cloudflare = CloudflareClient()
         
         # Parse domains to manage from environment variable
-        self.domains = self._parse_domains(get_env('DDNS_DOMAINS', ''))
+        domains_str = get_env('DDNS_DOMAINS', '')
+        logger.debug("Parsing DDNS domains from environment", extra={'raw_domains': domains_str})
+        self.domains = self._parse_domains(domains_str)
         
         # External IP check service URLs (we'll try them in order)
         self.ip_check_services = [
@@ -38,7 +40,8 @@ class DdnsManager(BaseManager):
         logger.debug("DdnsManager initialized", extra={
             'domains': self.domains,
             'check_interval': self.check_interval,
-            'record_types': self.record_types
+            'record_types': self.record_types,
+            'domain_count': len(self.domains)
         })
     
     def _setup_interval(self) -> None:
@@ -67,21 +70,53 @@ class DdnsManager(BaseManager):
             logger.warning("No DDNS domains specified. Please set DDNS_DOMAINS environment variable.")
             return domain_map
             
+        # Split into zone groups first for debugging
         zone_groups = domains_str.split(';')
+        logger.debug(f"Found {len(zone_groups)} zone groups in DDNS configuration", 
+                   extra={'zone_groups': zone_groups})
         
-        for group in zone_groups:
-            if not group.strip() or ':' not in group:
+        for i, group in enumerate(zone_groups):
+            logger.debug(f"Processing zone group {i+1}/{len(zone_groups)}", 
+                       extra={'group': group, 'group_index': i})
+            
+            if not group.strip():
+                logger.debug(f"Skipping empty zone group", extra={'group_index': i})
+                continue
+                
+            if ':' not in group:
+                logger.warning(f"Invalid zone group format (missing ':' separator)", 
+                             extra={'group': group, 'group_index': i})
                 continue
                 
             parts = group.split(':')
             if len(parts) != 2:
+                logger.warning(f"Invalid zone group format (expected 1 ':' separator)", 
+                             extra={'group': group, 'group_index': i, 'parts_count': len(parts)})
                 continue
                 
             zone_name = parts[0].strip()
-            subdomains = [s.strip() for s in parts[1].split(',') if s.strip()]
+            raw_subdomains = parts[1]
+            subdomains = [s.strip() for s in raw_subdomains.split(',') if s.strip()]
+            
+            logger.debug(f"Parsed zone configuration", 
+                       extra={
+                           'zone_name': zone_name, 
+                           'subdomains': subdomains,
+                           'raw_subdomains': raw_subdomains,
+                           'subdomain_count': len(subdomains)
+                       })
             
             if zone_name and subdomains:
                 domain_map[zone_name] = subdomains
+                logger.debug(f"Added zone to domain map", 
+                           extra={'zone_name': zone_name, 'subdomains': subdomains})
+            else:
+                logger.warning(f"Skipping invalid zone configuration", 
+                             extra={'zone_name': zone_name, 'subdomains': subdomains})
+                
+        # Log final result
+        logger.debug(f"Domain mapping complete", 
+                   extra={'domain_count': len(domain_map), 'domain_map': domain_map})
                 
         return domain_map
 
@@ -113,7 +148,8 @@ class DdnsManager(BaseManager):
             logger.debug(f"Updating DNS record", extra={
                 'zone_name': zone_name,
                 'record_name': record_name,
-                'record_type': record_type
+                'record_type': record_type,
+                'subdomain': subdomain
             })
             
             # Find existing record
@@ -122,12 +158,26 @@ class DdnsManager(BaseManager):
                 'type': record_type
             }
             
+            logger.debug(f"Searching for existing DNS record", extra={
+                'zone_id': zone_id,
+                'params': params
+            })
+            
             records = self.cloudflare.get_dns_records(zone_id, params)
+            logger.debug(f"Found {len(records) if records else 0} existing records", 
+                       extra={'record_count': len(records) if records else 0})
             
             if records:
                 # Update existing record
                 record_id = records[0]['id']
                 current_ip = records[0]['content']
+                
+                logger.debug(f"Existing record details", extra={
+                    'record_id': record_id,
+                    'current_ip': current_ip,
+                    'new_ip': ip,
+                    'record_name': record_name
+                })
                 
                 if current_ip == ip:
                     logger.debug(f"IP unchanged, skipping update", extra={
@@ -144,10 +194,20 @@ class DdnsManager(BaseManager):
                     'proxied': records[0].get('proxied', False)  # Maintain proxy status
                 }
                 
+                logger.debug(f"Updating existing DNS record", extra={
+                    'record_id': record_id,
+                    'record': record
+                })
+                
                 success = self.cloudflare.update_dns_record(zone_id, record_id, record)
                 if success:
                     logger.info(f"Updated {record_type} record for {record_name} to {ip}")
                     return True
+                
+                logger.error(f"Failed to update DNS record", extra={
+                    'record_name': record_name,
+                    'record_id': record_id
+                })
                 return False
                 
             else:
@@ -160,10 +220,19 @@ class DdnsManager(BaseManager):
                     'proxied': False
                 }
                 
+                logger.debug(f"Creating new DNS record", extra={
+                    'zone_id': zone_id,
+                    'record': record
+                })
+                
                 record_id = self.cloudflare.create_dns_record(zone_id, record)
                 if record_id:
                     logger.info(f"Created new {record_type} record for {record_name} with IP {ip}")
                     return True
+                
+                logger.error(f"Failed to create DNS record", extra={
+                    'record_name': record_name
+                })
                 return False
                 
         except Exception as e:
@@ -188,37 +257,65 @@ class DdnsManager(BaseManager):
         self.current_ip = ip
         self.last_check_time = datetime.now()
         
-        logger.info(f"Updating all domains to IP {ip}")
+        logger.info(f"Updating all domains to IP {ip}", extra={'domain_count': len(self.domains)})
         
         update_count = 0
         error_count = 0
         
+        # Log all domains that will be processed
+        logger.debug(f"Domains to be processed", extra={
+            'domains': list(self.domains.keys()),
+            'domain_count': len(self.domains)
+        })
+        
         # Process each zone
+        zone_index = 0
         for zone_name, subdomains in self.domains.items():
+            zone_index += 1
             try:
+                logger.debug(f"Processing zone {zone_index}/{len(self.domains)}", 
+                           extra={'zone_name': zone_name, 'subdomains': subdomains})
+                
                 # Get zone ID
-                zone_id, _ = self.cloudflare.get_zone_id(zone_name)
+                zone_id, actual_zone_name = self.cloudflare.get_zone_id(zone_name)
                 if not zone_id:
                     logger.error(f"No zone found for domain", extra={'zone_name': zone_name})
                     error_count += 1
                     continue
                 
+                logger.debug(f"Found zone ID for {zone_name}", 
+                           extra={'zone_id': zone_id, 'actual_zone_name': actual_zone_name})
+                
+                # Log all subdomains for this zone
+                logger.debug(f"Subdomains to process for zone {zone_name}", 
+                           extra={'subdomains': subdomains, 'subdomain_count': len(subdomains)})
+                
                 # Update each subdomain
-                for subdomain in subdomains:
+                for subdomain_index, subdomain in enumerate(subdomains):
+                    logger.debug(f"Processing subdomain {subdomain_index+1}/{len(subdomains)}", 
+                               extra={'zone_name': zone_name, 'subdomain': subdomain})
+                    
                     for record_type in self.record_types:
+                        logger.debug(f"Processing record type {record_type}", 
+                                   extra={'zone_name': zone_name, 'subdomain': subdomain, 'record_type': record_type})
+                        
                         success = self.update_dns_record(
                             zone_id, zone_name, subdomain, record_type, ip
                         )
                         
                         if success:
                             update_count += 1
+                            logger.debug(f"Successfully updated record", 
+                                       extra={'zone_name': zone_name, 'subdomain': subdomain, 'record_type': record_type})
                         else:
                             error_count += 1
+                            logger.debug(f"Failed to update record", 
+                                       extra={'zone_name': zone_name, 'subdomain': subdomain, 'record_type': record_type})
                             
             except Exception as e:
                 logger.error(f"Error processing zone", 
-                           extra={'zone_name': zone_name, 'error': str(e)})
+                           extra={'zone_name': zone_name, 'error': str(e), 'error_type': type(e).__name__})
                 error_count += 1
                 
         logger.info(f"DDNS update completed", 
-                  extra={'updated': update_count, 'errors': error_count}) 
+                  extra={'updated': update_count, 'errors': error_count, 'zone_count': len(self.domains)}) 
