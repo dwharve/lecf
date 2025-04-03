@@ -1,9 +1,9 @@
 """Cloudflare API client for interacting with Cloudflare services."""
 
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import cloudflare
 from cloudflare import Client
 
 from lecf.utils import config, logger
@@ -36,6 +36,9 @@ class CloudflareClient:
         Args:
             api_token: Cloudflare API token. If None, fetched from config.
         """
+        # Disable noisy HTTP request/response logging from the Cloudflare SDK
+        self._configure_sdk_logging()
+
         cf_config = config.get_cloudflare_config(config.APP_CONFIG)
 
         # Check if we should create credentials file for the SDK
@@ -52,7 +55,7 @@ class CloudflareClient:
                 os.makedirs(secrets_dir, exist_ok=True)
 
             # Create/update credentials file
-            with open(cred_file_path, "w") as f:
+            with open(cred_file_path, "w", encoding='utf-8') as f:
                 f.write("[cloudflare]\n")
                 f.write(f"token = {api_token or cf_config['api_token']}\n")
 
@@ -65,6 +68,18 @@ class CloudflareClient:
             self.cf = Client(api_token=api_token or cf_config["api_token"])
 
         logger.debug("CloudflareClient initialized")
+
+    def _configure_sdk_logging(self):
+        """Configure logging for the Cloudflare SDK to reduce verbosity."""
+        # Cloudflare SDK uses httpx which uses httpcore which both log detailed HTTP requests
+        # Disable or set to higher level to reduce noise
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+        logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+
+        # Cloudflare SDK itself might log at INFO level
+        logging.getLogger("cloudflare").setLevel(logging.WARNING)
 
     def _call_sdk_api(self, operation_name: str, methods: List[Callable], *args, **kwargs) -> Any:
         """
