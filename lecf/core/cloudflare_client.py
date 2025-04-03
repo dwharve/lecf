@@ -183,8 +183,9 @@ class CloudflareClient:
         )
 
         try:
-            # Use SDK to get zones
-            zones = self.cf.zones.list(params={"name": zone_name})
+            # Use SDK to get zones - note: list doesn't take params as a keyword
+            # Instead, pass name directly as a parameter
+            zones = self.cf.zones.list(name=zone_name)
             
             if zones and len(zones) > 0:
                 zone = zones[0]
@@ -246,7 +247,11 @@ class CloudflareClient:
             )
 
             # Use SDK to get DNS records
-            records = self.cf.dns.records.list(zone_id, params=params)
+            # Instead of using params dict, unpack any provided parameters
+            if params:
+                records = self.cf.dns.records.list(zone_id, **params)
+            else:
+                records = self.cf.dns.records.list(zone_id)
             
             logger.debug(
                 f"Found DNS records",
@@ -304,8 +309,8 @@ class CloudflareClient:
                 },
             )
 
-            # Use SDK to create DNS record
-            response = self.cf.dns.records.create(zone_id, data=record_data)
+            # Use SDK to create DNS record - pass individual parameters
+            response = self.cf.dns.records.create(zone_id, **record_data)
             
             if response and "id" in response:
                 record_id = response["id"]
@@ -375,8 +380,8 @@ class CloudflareClient:
                 },
             )
 
-            # Use SDK to update DNS record
-            response = self.cf.dns.records.update(zone_id, record_id, data=record_data)
+            # Use SDK to update DNS record - pass individual parameters
+            response = self.cf.dns.records.update(zone_id, record_id, **record_data)
             
             if response:
                 logger.debug(f"Successfully updated DNS record")
@@ -424,6 +429,7 @@ class CloudflareClient:
             )
 
             # Use SDK to delete DNS record
+            # This method only needs zone_id and record_id, no additional parameters
             response = self.cf.dns.records.delete(zone_id, record_id)
             
             if response:
