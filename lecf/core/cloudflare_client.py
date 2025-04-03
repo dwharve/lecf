@@ -195,8 +195,10 @@ class CloudflareClient:
                 break
                 
             if found_zone:
-                zone_id = found_zone["id"]
-                zone_name = found_zone["name"]
+                # Access Zone object properties using attribute notation instead of dictionary notation
+                # According to Cloudflare Python SDK documentation
+                zone_id = found_zone.id
+                zone_name = found_zone.name
                 logger.debug(
                     f"Found zone",
                     extra={
@@ -321,8 +323,9 @@ class CloudflareClient:
             # Use SDK to create DNS record - pass individual parameters
             response = self.cf.dns.records.create(zone_id, **record_data)
             
-            if response and "id" in response:
-                record_id = response["id"]
+            # Access response properties using attribute notation instead of dictionary notation
+            if response and hasattr(response, 'id'):
+                record_id = response.id
                 logger.debug(
                     f"Successfully created DNS record",
                     extra={"record_id": record_id},
@@ -392,6 +395,7 @@ class CloudflareClient:
             # Use SDK to update DNS record - pass individual parameters
             response = self.cf.dns.records.update(zone_id, record_id, **record_data)
             
+            # Check response using attribute access
             if response:
                 logger.debug(f"Successfully updated DNS record")
                 return True
