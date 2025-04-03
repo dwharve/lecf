@@ -19,85 +19,106 @@ class CloudflareClient:
         """
         cf_config = config.get_cloudflare_config(config.APP_CONFIG)
         self.cf = cloudflare.Client(api_token=api_token or cf_config["api_token"])
-        
+
         # Determine the API client capabilities by checking available methods
         self._check_client_capabilities()
-        
+
         logger.debug("CloudflareClient initialized")
-    
+
     def _check_client_capabilities(self):
         """Check the capabilities of the Cloudflare API client to determine which methods to use."""
-        self.has_zones_list = hasattr(self.cf.zones, 'list')
-        self.has_dns_records = hasattr(self.cf.zones, 'dns_records')
-        self.has_request = hasattr(self.cf, '_request')
-        logger.debug(f"Cloudflare client capabilities checked", 
-                    extra={"has_zones_list": self.has_zones_list, 
-                           "has_dns_records": self.has_dns_records,
-                           "has_request": self.has_request})
+        self.has_zones_list = hasattr(self.cf.zones, "list")
+        self.has_dns_records = hasattr(self.cf.zones, "dns_records")
+        self.has_request = hasattr(self.cf, "_request")
+        logger.debug(
+            f"Cloudflare client capabilities checked",
+            extra={
+                "has_zones_list": self.has_zones_list,
+                "has_dns_records": self.has_dns_records,
+                "has_request": self.has_request,
+            },
+        )
 
-    def _direct_api_request(self, method: str, path: str, params: dict = None, data: dict = None) -> Any:
+    def _direct_api_request(
+        self, method: str, path: str, params: dict = None, data: dict = None
+    ) -> Any:
         """
         Make a direct API request to Cloudflare.
-        
+
         Args:
             method: HTTP method (get, post, put, delete)
             path: API path
             params: Query parameters
             data: Request data
-            
+
         Returns:
             API response
         """
         try:
-            logger.debug(f"Making direct API request", 
-                       extra={"method": method, "path": path, "params": params})
-            
+            logger.debug(
+                f"Making direct API request",
+                extra={"method": method, "path": path, "params": params},
+            )
+
             # Import requests if needed
             import requests
-            
+
             # Get the authentication token
             cf_config = config.get_cloudflare_config(config.APP_CONFIG)
             token = cf_config["api_token"]
-            
+
             # Set up headers with authentication
             headers = {
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json',
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
             }
-            
+
             # Cloudflare API base URL
             base_url = "https://api.cloudflare.com/client/v4"
-            
+
             # Make the request using the requests library directly
             url = f"{base_url}{path}"
-            logger.debug(f"Making direct HTTP request to Cloudflare API", 
-                       extra={"method": method, "url": url})
-            
-            if method.lower() == 'get':
+            logger.debug(
+                f"Making direct HTTP request to Cloudflare API",
+                extra={"method": method, "url": url},
+            )
+
+            if method.lower() == "get":
                 response = requests.get(url, headers=headers, params=params)
-            elif method.lower() == 'post':
+            elif method.lower() == "post":
                 response = requests.post(url, headers=headers, params=params, json=data)
-            elif method.lower() == 'put':
+            elif method.lower() == "put":
                 response = requests.put(url, headers=headers, params=params, json=data)
-            elif method.lower() == 'delete':
+            elif method.lower() == "delete":
                 response = requests.delete(url, headers=headers, params=params)
             else:
                 logger.error(f"Unsupported HTTP method", extra={"method": method})
                 return None
-            
+
             # Check if request was successful
             if response.status_code >= 200 and response.status_code < 300:
-                logger.debug(f"Successful API response", 
-                           extra={"status_code": response.status_code})
+                logger.debug(
+                    f"Successful API response", extra={"status_code": response.status_code}
+                )
                 return response.json()
-            else:
-                logger.error(f"API request failed", 
-                           extra={"status_code": response.status_code, "response": response.text})
-                return None
-            
+
+            # If we get here, request was not successful
+            logger.error(
+                f"API request failed",
+                extra={"status_code": response.status_code, "response": response.text},
+            )
+            return None
+
         except Exception as e:
-            logger.error(f"Direct API request failed", 
-                        extra={"method": method, "path": path, "error": str(e), "error_type": type(e).__name__})
+            logger.error(
+                f"Direct API request failed",
+                extra={
+                    "method": method,
+                    "path": path,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             return None
 
     def get_zone_id(self, domain: str) -> Tuple[Optional[str], Optional[str]]:
@@ -133,7 +154,7 @@ class CloudflareClient:
             # Try multiple methods to get the zones
             zones_result = None
             methods_tried = []
-            
+
             # Method 1: Try using zones.list() if available
             if self.has_zones_list:
                 try:
@@ -141,9 +162,11 @@ class CloudflareClient:
                     zones_result = self.cf.zones.list()
                     logger.debug(f"Successfully retrieved zones using zones.list()")
                 except Exception as e1:
-                    logger.debug(f"Failed to get zones using list method", 
-                                 extra={"error": str(e1), "error_type": type(e1).__name__})
-            
+                    logger.debug(
+                        f"Failed to get zones using list method",
+                        extra={"error": str(e1), "error_type": type(e1).__name__},
+                    )
+
             # Method 2: Try direct call to zones() as a callable
             if not zones_result:
                 try:
@@ -151,93 +174,105 @@ class CloudflareClient:
                     zones_result = self.cf.zones()
                     logger.debug(f"Successfully retrieved zones using zones()")
                 except Exception as e2:
-                    logger.debug(f"Failed to get zones using direct call", 
-                                 extra={"error": str(e2), "error_type": type(e2).__name__})
-            
+                    logger.debug(
+                        f"Failed to get zones using direct call",
+                        extra={"error": str(e2), "error_type": type(e2).__name__},
+                    )
+
             # Method 3: Try client.list_zones()
             if not zones_result:
                 try:
                     methods_tried.append("client.list_zones()")
                     # Some versions of the client have a list_zones method
-                    if hasattr(self.cf, 'list_zones'):
+                    if hasattr(self.cf, "list_zones"):
                         zones_result = self.cf.list_zones()
                         logger.debug(f"Successfully retrieved zones using client.list_zones()")
                 except Exception as e3:
-                    logger.debug(f"Failed to get zones using list_zones method", 
-                                 extra={"error": str(e3), "error_type": type(e3).__name__})
-                    
-            logger.debug(f"Attempted zone retrieval methods", extra={"methods_tried": methods_tried})
-            
+                    logger.debug(
+                        f"Failed to get zones using list_zones method",
+                        extra={"error": str(e3), "error_type": type(e3).__name__},
+                    )
+
+            logger.debug(
+                f"Attempted zone retrieval methods", extra={"methods_tried": methods_tried}
+            )
+
             if not zones_result:
-                logger.error(f"Could not retrieve zones with any method", 
-                             extra={"methods_tried": methods_tried})
+                logger.error(
+                    f"Could not retrieve zones with any method",
+                    extra={"methods_tried": methods_tried},
+                )
                 return None, None
-            
+
             # Log the type of what we're dealing with to understand the structure
             logger.debug(f"Zones result type", extra={"type": type(zones_result).__name__})
-            
+
             # Convert pagination array to a list if needed
             zones = []
             try:
                 # If it's iterable, convert to list
                 for zone in zones_result:
                     zones.append(zone)
-                
-                logger.debug(f"Successfully converted zones result to list", 
-                            extra={"zones_count": len(zones)})
+
+                logger.debug(
+                    f"Successfully converted zones result to list",
+                    extra={"zones_count": len(zones)},
+                )
             except Exception as e:
-                logger.error(f"Failed to iterate through zones result", 
-                            extra={"error": str(e), "error_type": type(e).__name__})
+                logger.error(
+                    f"Failed to iterate through zones result",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
                 return None, None
-            
+
             # Log sample zone information if available
             if zones and len(zones) > 0:
                 first_zone_type = type(zones[0]).__name__
                 logger.debug(f"First zone is of type", extra={"zone_type": first_zone_type})
-                
+
                 # Try to access a name property or attribute to understand the structure
                 try:
                     sample_props = {}
                     first_zone = zones[0]
                     # Try various ways to get properties
-                    if hasattr(first_zone, 'name'):
-                        sample_props['name'] = first_zone.name
-                    if hasattr(first_zone, 'id'):
-                        sample_props['id'] = first_zone.id
+                    if hasattr(first_zone, "name"):
+                        sample_props["name"] = first_zone.name
+                    if hasattr(first_zone, "id"):
+                        sample_props["id"] = first_zone.id
                     # Try dictionary-like access too
                     try:
-                        if 'name' in first_zone:
-                            sample_props['dict_name'] = first_zone['name']
-                    except:
+                        if "name" in first_zone:
+                            sample_props["dict_name"] = first_zone["name"]
+                    except (KeyError, TypeError):
                         pass
-                    
+
                     logger.debug(f"Sample zone properties", extra={"properties": sample_props})
                 except Exception as e:
                     logger.debug(f"Error inspecting zone properties", extra={"error": str(e)})
-            
+
             # Filter zones by name in Python - try different access methods since we're not sure of the object structure
             matching_zones = []
             for zone in zones:
                 try:
                     # Try as attribute first
-                    if hasattr(zone, 'name') and getattr(zone, 'name') == zone_name:
+                    if hasattr(zone, "name") and getattr(zone, "name") == zone_name:
                         matching_zones.append(zone)
                         continue
-                        
+
                     # Try as dictionary key
                     try:
-                        if zone['name'] == zone_name:
+                        if zone["name"] == zone_name:
                             matching_zones.append(zone)
                             continue
-                    except:
+                    except (KeyError, TypeError):
                         pass
-                        
+
                     # Try with get() method if available
                     try:
-                        if hasattr(zone, 'get') and zone.get('name') == zone_name:
+                        if hasattr(zone, "get") and zone.get("name") == zone_name:
                             matching_zones.append(zone)
                             continue
-                    except:
+                    except (AttributeError, TypeError):
                         pass
                 except Exception as e:
                     logger.debug(f"Error matching zone", extra={"error": str(e), "zone": str(zone)})
@@ -260,33 +295,33 @@ class CloudflareClient:
                 return None, None
 
             zone = matching_zones[0]
-            
+
             # Try to extract zone_id and actual_zone_name
             zone_id = None
             actual_zone_name = None
-            
+
             # Try as attribute
-            if hasattr(zone, 'id'):
+            if hasattr(zone, "id"):
                 zone_id = zone.id
-            if hasattr(zone, 'name'):
+            if hasattr(zone, "name"):
                 actual_zone_name = zone.name
-                
+
             # Try as dictionary
             if zone_id is None:
                 try:
-                    zone_id = zone['id']
-                except:
+                    zone_id = zone["id"]
+                except (KeyError, TypeError):
                     pass
             if actual_zone_name is None:
                 try:
-                    actual_zone_name = zone['name']
-                except:
+                    actual_zone_name = zone["name"]
+                except (KeyError, TypeError):
                     pass
-            
+
             # Fallback
             if actual_zone_name is None:
                 actual_zone_name = zone_name
-                
+
             if zone_id is None:
                 logger.error(
                     f"Failed to extract zone ID from zone object",
@@ -337,29 +372,35 @@ class CloudflareClient:
             # Try direct API call first
             query_params = params.copy() if params else {}
             records = []
-            
+
             try:
                 # Use direct API request
                 path = f"/zones/{zone_id}/dns_records"
-                response = self._direct_api_request('get', path, params=query_params)
-                
-                if response and 'result' in response:
-                    records = response['result']
-                    logger.debug(f"Successfully retrieved DNS records using direct API request", 
-                                extra={"count": len(records)})
-                    
+                response = self._direct_api_request("get", path, params=query_params)
+
+                if response and "result" in response:
+                    records = response["result"]
+                    logger.debug(
+                        f"Successfully retrieved DNS records using direct API request",
+                        extra={"count": len(records)},
+                    )
+
                     # Log sample record structure if available
                     if records and len(records) > 0:
                         sample_props = {}
                         sample_record = records[0]
-                        for key in ['id', 'type', 'name', 'content']:
+                        for key in ["id", "type", "name", "content"]:
                             if key in sample_record:
                                 sample_props[key] = sample_record[key]
-                        logger.debug(f"Sample DNS record structure", extra={"properties": sample_props})
+                        logger.debug(
+                            f"Sample DNS record structure", extra={"properties": sample_props}
+                        )
             except Exception as e:
-                logger.debug(f"Failed to get DNS records using direct API request", 
-                           extra={"error": str(e), "error_type": type(e).__name__})
-                
+                logger.debug(
+                    f"Failed to get DNS records using direct API request",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+
                 # Try previous methods if direct API call fails
                 records_result = None
                 methods_tried = []
@@ -369,51 +410,71 @@ class CloudflareClient:
                     try:
                         methods_tried.append("zones.dns_records.get(zone_id)")
                         records_result = self.cf.zones.dns_records.get(zone_id)
-                        logger.debug(f"Successfully retrieved DNS records using dns_records.get(zone_id)")
+                        logger.debug(
+                            f"Successfully retrieved DNS records using dns_records.get(zone_id)"
+                        )
                     except Exception as e1:
-                        logger.debug(f"Failed to get DNS records using direct method", 
-                                   extra={"error": str(e1), "error_type": type(e1).__name__})
+                        logger.debug(
+                            f"Failed to get DNS records using direct method",
+                            extra={"error": str(e1), "error_type": type(e1).__name__},
+                        )
 
                 # Method 2: Try using the zones[id].dns_records.list() method
                 if not records_result:
                     try:
                         methods_tried.append("zones[zone_id].dns_records.list()")
                         records_result = self.cf.zones[zone_id].dns_records.list()
-                        logger.debug(f"Successfully retrieved DNS records using zones[zone_id].dns_records.list()")
+                        logger.debug(
+                            f"Successfully retrieved DNS records using zones[zone_id].dns_records.list()"
+                        )
                     except Exception as e2:
-                        logger.debug(f"Failed to get DNS records using zone indexing method", 
-                                    extra={"error": str(e2), "error_type": type(e2).__name__})
+                        logger.debug(
+                            f"Failed to get DNS records using zone indexing method",
+                            extra={"error": str(e2), "error_type": type(e2).__name__},
+                        )
 
                 # Method 3: Try new API format: cf.zones.dns_records.list(zone_id=zone_id)
                 if not records_result:
                     try:
                         methods_tried.append("zones.dns_records.list(zone_id=zone_id)")
                         records_result = self.cf.zones.dns_records.list(zone_id=zone_id)
-                        logger.debug(f"Successfully retrieved DNS records using zones.dns_records.list(zone_id=zone_id)")
+                        logger.debug(
+                            f"Successfully retrieved DNS records using zones.dns_records.list(zone_id=zone_id)"
+                        )
                     except Exception as e3:
-                        logger.debug(f"Failed to get DNS records using newer API method", 
-                                    extra={"error": str(e3), "error_type": type(e3).__name__})
+                        logger.debug(
+                            f"Failed to get DNS records using newer API method",
+                            extra={"error": str(e3), "error_type": type(e3).__name__},
+                        )
 
                 if records_result:
-                    logger.debug(f"DNS records result type", extra={"type": type(records_result).__name__})
-                    
+                    logger.debug(
+                        f"DNS records result type", extra={"type": type(records_result).__name__}
+                    )
+
                     # Convert pagination array to a list if needed
                     try:
                         # If it's iterable, convert to list
                         for record in records_result:
                             records.append(record)
-                        
-                        logger.debug(f"Successfully converted DNS records result to list", 
-                                   extra={"records_count": len(records)})
+
+                        logger.debug(
+                            f"Successfully converted DNS records result to list",
+                            extra={"records_count": len(records)},
+                        )
                     except Exception as e:
-                        logger.error(f"Failed to iterate through DNS records result", 
-                                   extra={"error": str(e), "error_type": type(e).__name__})
+                        logger.error(
+                            f"Failed to iterate through DNS records result",
+                            extra={"error": str(e), "error_type": type(e).__name__},
+                        )
                         return []
                 else:
-                    logger.error(f"Could not retrieve DNS records with any method", 
-                               extra={"methods_tried": methods_tried, "zone_id": zone_id})
+                    logger.error(
+                        f"Could not retrieve DNS records with any method",
+                        extra={"methods_tried": methods_tried, "zone_id": zone_id},
+                    )
                     return []
-            
+
             # If original params were provided but we had to use a direct API call that didn't support filtering,
             # filter in Python
             if params and isinstance(records, list):
@@ -424,25 +485,26 @@ class CloudflareClient:
                         for key, value in params.items():
                             # For direct API calls, records should be dictionaries
                             record_value = record.get(key) if isinstance(record, dict) else None
-                            
+
                             # Try attribute access if not a dict
                             if record_value is None and hasattr(record, key):
                                 record_value = getattr(record, key)
-                            
+
                             if record_value != value:
                                 match = False
                                 break
-                                
+
                         if match:
                             filtered_records.append(record)
                     except Exception as e:
-                        logger.debug(f"Error matching record", 
-                                    extra={"error": str(e), "record": str(record)})
-                        
+                        logger.debug(
+                            f"Error matching record", extra={"error": str(e), "record": str(record)}
+                        )
+
                 logger.debug(
                     f"Filtered DNS records by parameters",
                     extra={
-                        "zone_id": zone_id, 
+                        "zone_id": zone_id,
                         "params": params,
                         "original_count": len(records),
                         "filtered_count": len(filtered_records),
@@ -457,10 +519,10 @@ class CloudflareClient:
                     if not isinstance(record, dict):
                         # Try to convert to dict
                         record_dict = {}
-                        
+
                         # Common DNS record attributes
-                        attrs = ['id', 'type', 'name', 'content', 'proxied', 'ttl', 'priority']
-                        
+                        attrs = ["id", "type", "name", "content", "proxied", "ttl", "priority"]
+
                         for attr in attrs:
                             # Try as attribute
                             if hasattr(record, attr):
@@ -469,15 +531,16 @@ class CloudflareClient:
                             else:
                                 try:
                                     record_dict[attr] = record[attr]
-                                except:
+                                except (KeyError, TypeError, IndexError):
                                     pass
-                        
+
                         normalized_records.append(record_dict)
                     else:
                         normalized_records.append(record)
                 except Exception as e:
-                    logger.debug(f"Error normalizing record", 
-                                extra={"error": str(e), "record": str(record)})
+                    logger.debug(
+                        f"Error normalizing record", extra={"error": str(e), "record": str(record)}
+                    )
                     # Include as-is in case of error
                     normalized_records.append(record)
 
@@ -527,17 +590,21 @@ class CloudflareClient:
             # Try direct API call first
             try:
                 path = f"/zones/{zone_id}/dns_records"
-                response = self._direct_api_request('post', path, data=record_data)
-                
-                if response and 'result' in response and 'id' in response['result']:
-                    record_id = response['result']['id']
-                    logger.debug(f"Successfully created DNS record using direct API request", 
-                                extra={"record_id": record_id})
+                response = self._direct_api_request("post", path, data=record_data)
+
+                if response and "result" in response and "id" in response["result"]:
+                    record_id = response["result"]["id"]
+                    logger.debug(
+                        f"Successfully created DNS record using direct API request",
+                        extra={"record_id": record_id},
+                    )
                     return record_id
             except Exception as e:
-                logger.debug(f"Failed to create DNS record using direct API request", 
-                           extra={"error": str(e), "error_type": type(e).__name__})
-            
+                logger.debug(
+                    f"Failed to create DNS record using direct API request",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+
             # Fallback to object-based methods
             methods_tried = []
             result = None
@@ -546,69 +613,90 @@ class CloudflareClient:
             try:
                 methods_tried.append("zones.dns_records.post(zone_id=zone_id, data=record_data)")
                 result = self.cf.zones.dns_records.post(zone_id=zone_id, data=record_data)
-                logger.debug(f"Successfully created DNS record using zones.dns_records.post(zone_id=zone_id, data=record_data)")
+                logger.debug(
+                    f"Successfully created DNS record using zones.dns_records.post(zone_id=zone_id, data=record_data)"
+                )
                 logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
-                logger.debug(f"Failed to create DNS record using new API method", 
-                            extra={"error": str(e1), "error_type": type(e1).__name__})
-                
+                logger.debug(
+                    f"Failed to create DNS record using new API method",
+                    extra={"error": str(e1), "error_type": type(e1).__name__},
+                )
+
                 # Method 2: Try with zones[zone_id].dns_records.create()
                 try:
                     methods_tried.append("zones[zone_id].dns_records.create()")
                     result = self.cf.zones[zone_id].dns_records.create(data=record_data)
-                    logger.debug(f"Successfully created DNS record using zones[zone_id].dns_records.create()")
+                    logger.debug(
+                        f"Successfully created DNS record using zones[zone_id].dns_records.create()"
+                    )
                     logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
-                    logger.debug(f"Failed to create DNS record using zone indexing method", 
-                                extra={"error": str(e2), "error_type": type(e2).__name__})
+                    logger.debug(
+                        f"Failed to create DNS record using zone indexing method",
+                        extra={"error": str(e2), "error_type": type(e2).__name__},
+                    )
 
             if not result:
-                logger.error(f"Could not create DNS record with any method", 
-                            extra={"methods_tried": methods_tried, "zone_id": zone_id})
+                logger.error(
+                    f"Could not create DNS record with any method",
+                    extra={"methods_tried": methods_tried, "zone_id": zone_id},
+                )
                 return None
 
             # Extract the record ID from the result which may be an object or dict
             record_id = None
-            
+
             # Try as attribute
-            if hasattr(result, 'id'):
+            if hasattr(result, "id"):
                 record_id = result.id
                 logger.debug(f"Extracted record ID as attribute", extra={"record_id": record_id})
-            
+
             # Try as dictionary
             if record_id is None:
                 try:
                     record_id = result["id"]
-                    logger.debug(f"Extracted record ID as dictionary key", extra={"record_id": record_id})
-                except:
+                    logger.debug(
+                        f"Extracted record ID as dictionary key", extra={"record_id": record_id}
+                    )
+                except (KeyError, TypeError):
                     pass
-                    
+
             # Try to access 'result' property in case the API returns a wrapper object
-            if record_id is None and hasattr(result, 'result'):
+            if record_id is None and hasattr(result, "result"):
                 try:
                     inner_result = result.result
-                    if hasattr(inner_result, 'id'):
+                    if hasattr(inner_result, "id"):
                         record_id = inner_result.id
-                        logger.debug(f"Extracted record ID from result.result attribute", extra={"record_id": record_id})
+                        logger.debug(
+                            f"Extracted record ID from result.result attribute",
+                            extra={"record_id": record_id},
+                        )
                     else:
                         try:
                             record_id = inner_result["id"]
-                            logger.debug(f"Extracted record ID from result.result dictionary", extra={"record_id": record_id})
-                        except:
+                            logger.debug(
+                                f"Extracted record ID from result.result dictionary",
+                                extra={"record_id": record_id},
+                            )
+                        except (KeyError, TypeError):
                             pass
-                except:
+                except (AttributeError, TypeError):
                     pass
-            
+
             # If it's a dictionary with a 'result' key
-            if record_id is None and isinstance(result, dict) and 'result' in result:
+            if record_id is None and isinstance(result, dict) and "result" in result:
                 try:
-                    inner_result = result['result']
-                    if isinstance(inner_result, dict) and 'id' in inner_result:
-                        record_id = inner_result['id']
-                        logger.debug(f"Extracted record ID from result['result'] dictionary", extra={"record_id": record_id})
-                except:
+                    inner_result = result["result"]
+                    if isinstance(inner_result, dict) and "id" in inner_result:
+                        record_id = inner_result["id"]
+                        logger.debug(
+                            f"Extracted record ID from result['result'] dictionary",
+                            extra={"record_id": record_id},
+                        )
+                except (KeyError, TypeError):
                     pass
-            
+
             if record_id is None:
                 logger.error(
                     f"Failed to extract record ID from result",
@@ -620,9 +708,9 @@ class CloudflareClient:
                     if len(result_repr) > 1000:
                         result_repr = result_repr[:1000] + "... (truncated)"
                     logger.debug(f"Result content", extra={"content": result_repr})
-                    
+
                     # If it's a complex object, try to get its attributes or keys
-                    if hasattr(result, '__dict__'):
+                    if hasattr(result, "__dict__"):
                         attrs = list(result.__dict__.keys())
                         logger.debug(f"Result attributes", extra={"attributes": attrs})
                     elif isinstance(result, dict):
@@ -630,7 +718,7 @@ class CloudflareClient:
                         logger.debug(f"Result keys", extra={"keys": keys})
                 except Exception as e:
                     logger.debug(f"Error inspecting result", extra={"error": str(e)})
-                    
+
                 return None
 
             logger.debug(
@@ -687,29 +775,37 @@ class CloudflareClient:
             # Try direct API call first
             try:
                 path = f"/zones/{zone_id}/dns_records/{record_id}"
-                response = self._direct_api_request('put', path, data=record_data)
-                
-                if response and 'success' in response and response['success']:
+                response = self._direct_api_request("put", path, data=record_data)
+
+                if response and "success" in response and response["success"]:
                     logger.debug(f"Successfully updated DNS record using direct API request")
                     return True
             except Exception as e:
-                logger.debug(f"Failed to update DNS record using direct API request", 
-                           extra={"error": str(e), "error_type": type(e).__name__})
-            
+                logger.debug(
+                    f"Failed to update DNS record using direct API request",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+
             # Fallback to object-based methods
             methods_tried = []
             result = None
 
             # Method 1: Try with new API format
             try:
-                methods_tried.append("zones.dns_records.put(zone_id=zone_id, identifier=record_id, data=record_data)")
-                result = self.cf.zones.dns_records.put(zone_id=zone_id, identifier=record_id, data=record_data)
+                methods_tried.append(
+                    "zones.dns_records.put(zone_id=zone_id, identifier=record_id, data=record_data)"
+                )
+                result = self.cf.zones.dns_records.put(
+                    zone_id=zone_id, identifier=record_id, data=record_data
+                )
                 logger.debug(f"Successfully updated DNS record using new API method")
                 logger.debug(f"Result type", extra={"type": type(result).__name__})
             except Exception as e1:
-                logger.debug(f"Failed to update DNS record using new API method", 
-                            extra={"error": str(e1), "error_type": type(e1).__name__})
-                
+                logger.debug(
+                    f"Failed to update DNS record using new API method",
+                    extra={"error": str(e1), "error_type": type(e1).__name__},
+                )
+
                 # Method 2: Try with zones[zone_id].dns_records[record_id].update()
                 try:
                     methods_tried.append("zones[zone_id].dns_records[record_id].update()")
@@ -717,14 +813,22 @@ class CloudflareClient:
                     logger.debug(f"Successfully updated DNS record using zone indexing method")
                     logger.debug(f"Result type", extra={"type": type(result).__name__})
                 except Exception as e2:
-                    logger.debug(f"Failed to update DNS record using zone indexing method", 
-                                extra={"error": str(e2), "error_type": type(e2).__name__})
+                    logger.debug(
+                        f"Failed to update DNS record using zone indexing method",
+                        extra={"error": str(e2), "error_type": type(e2).__name__},
+                    )
 
             if not result and not response:
-                logger.error(f"Could not update DNS record with any method", 
-                            extra={"methods_tried": methods_tried, "zone_id": zone_id, "record_id": record_id})
+                logger.error(
+                    f"Could not update DNS record with any method",
+                    extra={
+                        "methods_tried": methods_tried,
+                        "zone_id": zone_id,
+                        "record_id": record_id,
+                    },
+                )
                 return False
-                
+
             logger.debug(
                 f"Updated DNS record successfully",
                 extra={
@@ -768,40 +872,54 @@ class CloudflareClient:
             # Try direct API call first
             try:
                 path = f"/zones/{zone_id}/dns_records/{record_id}"
-                response = self._direct_api_request('delete', path)
-                
-                if response and 'success' in response and response['success']:
+                response = self._direct_api_request("delete", path)
+
+                if response and "success" in response and response["success"]:
                     logger.debug(f"Successfully deleted DNS record using direct API request")
                     return True
             except Exception as e:
-                logger.debug(f"Failed to delete DNS record using direct API request", 
-                           extra={"error": str(e), "error_type": type(e).__name__})
-            
+                logger.debug(
+                    f"Failed to delete DNS record using direct API request",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+
             # Fallback to object-based methods
             methods_tried = []
             result = None
 
             # Method 1: Try with new API format
             try:
-                methods_tried.append("zones.dns_records.delete(zone_id=zone_id, identifier=record_id)")
+                methods_tried.append(
+                    "zones.dns_records.delete(zone_id=zone_id, identifier=record_id)"
+                )
                 result = self.cf.zones.dns_records.delete(zone_id=zone_id, identifier=record_id)
                 logger.debug(f"Successfully deleted DNS record using new API method")
             except Exception as e1:
-                logger.debug(f"Failed to delete DNS record using new API method", 
-                            extra={"error": str(e1), "error_type": type(e1).__name__})
-                
+                logger.debug(
+                    f"Failed to delete DNS record using new API method",
+                    extra={"error": str(e1), "error_type": type(e1).__name__},
+                )
+
                 # Method 2: Try with zones[zone_id].dns_records[record_id].delete()
                 try:
                     methods_tried.append("zones[zone_id].dns_records[record_id].delete()")
                     result = self.cf.zones[zone_id].dns_records[record_id].delete()
                     logger.debug(f"Successfully deleted DNS record using zone indexing method")
                 except Exception as e2:
-                    logger.debug(f"Failed to delete DNS record using zone indexing method", 
-                                extra={"error": str(e2), "error_type": type(e2).__name__})
+                    logger.debug(
+                        f"Failed to delete DNS record using zone indexing method",
+                        extra={"error": str(e2), "error_type": type(e2).__name__},
+                    )
 
             if not result and not response:
-                logger.error(f"Could not delete DNS record with any method", 
-                            extra={"methods_tried": methods_tried, "zone_id": zone_id, "record_id": record_id})
+                logger.error(
+                    f"Could not delete DNS record with any method",
+                    extra={
+                        "methods_tried": methods_tried,
+                        "zone_id": zone_id,
+                        "record_id": record_id,
+                    },
+                )
                 return False
 
             logger.debug(
