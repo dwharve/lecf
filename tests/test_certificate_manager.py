@@ -19,6 +19,7 @@ class TestCertificateManager:
                 "cert_dir": "/test/cert/dir",
                 "renewal_threshold_days": 30,
                 "check_interval_hours": 12,
+                "email": "test@example.com",
             }
         },
     )

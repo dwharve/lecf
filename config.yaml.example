@@ -20,6 +20,7 @@ certificate:
   renewal_threshold_days: 30
   check_interval_hours: 12
   cert_dir: /etc/letsencrypt/live
+  email: your_email@example.com  # Email address for Let's Encrypt notifications
 
 # Cloudflare Configuration
 cloudflare:

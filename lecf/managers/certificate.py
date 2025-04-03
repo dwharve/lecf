@@ -20,8 +20,14 @@ class CertificateManager(BaseManager):
         domains_config = self._get_domains_config()
         self.domains = self._parse_domains(domains_config)
 
-        # Get certbot email
-        self.email = get_env("CERTBOT_EMAIL", required=True)
+        # Get certbot email from config or environment
+        self.email = config.get_config_value(
+            config.APP_CONFIG,
+            "certificate",
+            "email",
+            env_key="CERTBOT_EMAIL",
+            required=True,
+        )
 
         # Set certificate paths
         self.cert_dir = config.get_config_value(

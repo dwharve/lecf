@@ -91,7 +91,7 @@ The `.env` file typically contains sensitive information like API tokens:
 ```
 # Required Configuration
 CLOUDFLARE_API_TOKEN=your_cloudflare_api_token  # Can also be in config.yaml
-CERTBOT_EMAIL=your_email@example.com  # Can also be in config.yaml
+CERTBOT_EMAIL=your_email@example.com  # Can also be in config.yaml under certificate.email
 ```
 
 ### YAML Configuration (`config.yaml`)
@@ -115,10 +115,10 @@ certificate:
   renewal_threshold_days: 30
   check_interval_hours: 12
   cert_dir: /etc/letsencrypt/live
+  email: your_email@example.com  # Email address for Let's Encrypt notifications
 
 # Cloudflare Configuration
 cloudflare:
-  email: your_email@example.com  # Used for certificate registration
   # You can specify the API token here, though it's more secure in .env
   # api_token: your_cloudflare_api_token
 
@@ -126,6 +126,20 @@ cloudflare:
 logging:
   level: INFO
   # file: /var/log/lecf.log  # Uncomment to enable file logging
+```
+
+With example of a more detailed DDNS configuration:
+
+```yaml
+ddns:
+  domains:
+    - domain: example.com
+      subdomains: "@,www"
+      record_types: A,AAAA
+    - domain: another-example.com
+      subdomains: "@,subdomain"
+      record_types: A
+  check_interval_minutes: 15
 ```
 
 ### Configuration Precedence
@@ -145,6 +159,23 @@ For best security, we recommend storing the Cloudflare API token in the `.env` f
 2. **More Convenient**: Store the API token in `config.yaml` under the `cloudflare` section
 
 The system will check both locations and use whichever one is specified.
+
+### Certbot Email Configuration
+
+The email address used for Let's Encrypt certificate notifications and registration can be configured in:
+
+1. The `certificate.email` field in your `config.yaml` file:
+   ```yaml
+   certificate:
+     email: your_email@example.com
+   ```
+
+2. Or as an environment variable in your `.env` file:
+   ```
+   CERTBOT_EMAIL=your_email@example.com
+   ```
+
+If both are specified, the YAML configuration takes precedence.
 
 ### DDNS Configuration
 
