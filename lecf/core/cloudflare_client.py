@@ -103,8 +103,57 @@ class CloudflareClient:
                              extra={"methods_tried": methods_tried})
                 return None, None
             
-            # Filter zones by name in Python
-            matching_zones = [zone for zone in zones if zone.get('name') == zone_name]
+            # Log the type of what we're dealing with to understand the structure
+            if zones and len(zones) > 0:
+                first_zone_type = type(zones[0]).__name__
+                logger.debug(f"First zone is of type", extra={"zone_type": first_zone_type})
+                
+                # Try to access a name property or attribute to understand the structure
+                try:
+                    sample_props = {}
+                    first_zone = zones[0]
+                    # Try various ways to get properties
+                    if hasattr(first_zone, 'name'):
+                        sample_props['name'] = first_zone.name
+                    if hasattr(first_zone, 'id'):
+                        sample_props['id'] = first_zone.id
+                    # Try dictionary-like access too
+                    try:
+                        if 'name' in first_zone:
+                            sample_props['dict_name'] = first_zone['name']
+                    except:
+                        pass
+                    
+                    logger.debug(f"Sample zone properties", extra={"properties": sample_props})
+                except Exception as e:
+                    logger.debug(f"Error inspecting zone properties", extra={"error": str(e)})
+            
+            # Filter zones by name in Python - try different access methods since we're not sure of the object structure
+            matching_zones = []
+            for zone in zones:
+                try:
+                    # Try as attribute first
+                    if hasattr(zone, 'name') and getattr(zone, 'name') == zone_name:
+                        matching_zones.append(zone)
+                        continue
+                        
+                    # Try as dictionary key
+                    try:
+                        if zone['name'] == zone_name:
+                            matching_zones.append(zone)
+                            continue
+                    except:
+                        pass
+                        
+                    # Try with get() method if available
+                    try:
+                        if hasattr(zone, 'get') and zone.get('name') == zone_name:
+                            matching_zones.append(zone)
+                            continue
+                    except:
+                        pass
+                except Exception as e:
+                    logger.debug(f"Error matching zone", extra={"error": str(e), "zone": str(zone)})
 
             logger.debug(
                 f"Filtered zones by name",
@@ -124,8 +173,39 @@ class CloudflareClient:
                 return None, None
 
             zone = matching_zones[0]
-            zone_id = zone["id"]
-            actual_zone_name = zone.get("name", zone_name)
+            
+            # Try to extract zone_id and actual_zone_name
+            zone_id = None
+            actual_zone_name = None
+            
+            # Try as attribute
+            if hasattr(zone, 'id'):
+                zone_id = zone.id
+            if hasattr(zone, 'name'):
+                actual_zone_name = zone.name
+                
+            # Try as dictionary
+            if zone_id is None:
+                try:
+                    zone_id = zone['id']
+                except:
+                    pass
+            if actual_zone_name is None:
+                try:
+                    actual_zone_name = zone['name']
+                except:
+                    pass
+            
+            # Fallback
+            if actual_zone_name is None:
+                actual_zone_name = zone_name
+                
+            if zone_id is None:
+                logger.error(
+                    f"Failed to extract zone ID from zone object",
+                    extra={"domain": domain, "zone_name": zone_name},
+                )
+                return None, None
 
             logger.debug(
                 f"Found zone for domain",
@@ -134,7 +214,6 @@ class CloudflareClient:
                     "zone_name": zone_name,
                     "actual_zone_name": actual_zone_name,
                     "zone_id": zone_id,
-                    "zone_status": zone.get("status"),
                 },
             )
 
@@ -190,13 +269,40 @@ class CloudflareClient:
             if params:
                 filtered_records = []
                 for record in records:
-                    match = True
-                    for key, value in params.items():
-                        if record.get(key) != value:
-                            match = False
-                            break
-                    if match:
-                        filtered_records.append(record)
+                    try:
+                        match = True
+                        for key, value in params.items():
+                            # Try multiple ways to get the property value
+                            record_value = None
+                            
+                            # Try attribute access
+                            if hasattr(record, key):
+                                record_value = getattr(record, key)
+                            
+                            # Try dictionary access
+                            if record_value is None:
+                                try:
+                                    record_value = record[key]
+                                except:
+                                    pass
+                            
+                            # Try get() method
+                            if record_value is None and hasattr(record, 'get'):
+                                try:
+                                    record_value = record.get(key)
+                                except:
+                                    pass
+                            
+                            if record_value != value:
+                                match = False
+                                break
+                                
+                        if match:
+                            filtered_records.append(record)
+                    except Exception as e:
+                        logger.debug(f"Error matching record", 
+                                    extra={"error": str(e), "record": str(record)})
+                        
                 records = filtered_records
 
                 logger.debug(
@@ -209,12 +315,43 @@ class CloudflareClient:
                     },
                 )
 
+            # Convert records to dictionaries if they're objects
+            normalized_records = []
+            for record in records:
+                try:
+                    if not isinstance(record, dict):
+                        # Try to convert to dict
+                        record_dict = {}
+                        
+                        # Common DNS record attributes
+                        attrs = ['id', 'type', 'name', 'content', 'proxied', 'ttl', 'priority']
+                        
+                        for attr in attrs:
+                            # Try as attribute
+                            if hasattr(record, attr):
+                                record_dict[attr] = getattr(record, attr)
+                            # Try as dict key
+                            else:
+                                try:
+                                    record_dict[attr] = record[attr]
+                                except:
+                                    pass
+                        
+                        normalized_records.append(record_dict)
+                    else:
+                        normalized_records.append(record)
+                except Exception as e:
+                    logger.debug(f"Error normalizing record", 
+                                extra={"error": str(e), "record": str(record)})
+                    # Include as-is in case of error
+                    normalized_records.append(record)
+
             logger.debug(
                 f"Retrieved DNS records",
-                extra={"zone_id": zone_id, "count": len(records) if records else 0},
+                extra={"zone_id": zone_id, "count": len(normalized_records)},
             )
 
-            return records or []
+            return normalized_records
         except Exception as e:
             logger.error(
                 f"Cloudflare API error when getting DNS records",
@@ -279,7 +416,26 @@ class CloudflareClient:
                             extra={"methods_tried": methods_tried, "zone_id": zone_id})
                 return None
 
-            record_id = result["id"]
+            # Extract the record ID from the result which may be an object or dict
+            record_id = None
+            
+            # Try as attribute
+            if hasattr(result, 'id'):
+                record_id = result.id
+            
+            # Try as dictionary
+            if record_id is None:
+                try:
+                    record_id = result["id"]
+                except:
+                    pass
+            
+            if record_id is None:
+                logger.error(
+                    f"Failed to extract record ID from result",
+                    extra={"zone_id": zone_id, "result_type": type(result).__name__},
+                )
+                return None
 
             logger.debug(
                 f"Created DNS record successfully",
