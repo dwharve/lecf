@@ -37,9 +37,22 @@ def setup_logging(name: str = None) -> logging.Logger:
     # Add file handler if LOG_FILE is specified
     log_file = os.getenv("LOG_FILE")
     if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        # Create log directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+                logger.debug(f"Created log directory: {log_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create log directory: {log_dir}", extra={"error": str(e)})
+        
+        try:
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            logger.debug(f"Log file handler added for: {log_file}")
+        except Exception as e:
+            logger.error(f"Failed to set up log file handler", extra={"path": log_file, "error": str(e)})
 
     return logger
 
