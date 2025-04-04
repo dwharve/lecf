@@ -55,7 +55,7 @@ class CloudflareClient:
                 os.makedirs(secrets_dir, exist_ok=True)
 
             # Create/update credentials file
-            with open(cred_file_path, "w", encoding='utf-8') as f:
+            with open(cred_file_path, "w", encoding="utf-8") as f:
                 f.write("[cloudflare]\n")
                 f.write(f"token = {api_token or cf_config['api_token']}\n")
 

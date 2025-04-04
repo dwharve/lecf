@@ -232,7 +232,7 @@ class DdnsManager(BaseManager):
 
                 # Check if the record is proxied (get with fallback to False)
                 proxied = False
-                if hasattr(record_obj, 'proxied'):
+                if hasattr(record_obj, "proxied"):
                     proxied = record_obj.proxied
 
                 record = {
@@ -321,14 +321,9 @@ class DdnsManager(BaseManager):
             logger.info(f"Initial IP address detected", extra={"ip": ip})
 
         # Track different statuses
-        status_counts = {
-            "updated": 0,
-            "created": 0, 
-            "unchanged": 0,
-            "error": 0
-        }
+        status_counts = {"updated": 0, "created": 0, "unchanged": 0, "error": 0}
         processed_domains = 0
-        
+
         # Process each domain
         for domain, config in self.domains.items():
             processed_domains += 1
