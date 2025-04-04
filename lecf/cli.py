@@ -159,7 +159,11 @@ def load_configuration(config_path: Optional[str] = None):
             os.environ["LOG_FILE"] = log_file
 
             # Re-setup logging to apply file handler
-            setup_logging("main")
+            # Configure the root logger to ensure all module loggers inherit the file handler
+            root_logger = setup_logging()
+            
+            # Also update the main logger
+            main_logger = setup_logging("main") 
             logger.info(f"Log file set to {log_file}")
 
     except FileNotFoundError:
@@ -193,8 +197,11 @@ def main():
     if args.debug:
         os.environ["LOG_LEVEL"] = "DEBUG"
 
-    # Ensure we have a clean logger for main process
-    setup_logging("main")
+    # First ensure the root logger is configured
+    root_logger = setup_logging()
+    
+    # Then configure the main logger
+    main_logger = setup_logging("main")
 
     # Load configuration from YAML
     load_configuration(args.config)
