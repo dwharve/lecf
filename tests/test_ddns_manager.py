@@ -114,8 +114,8 @@ class TestDdnsManager:
         # Mock the get_public_ip method to return a known value
         self.manager.get_public_ip = lambda: "127.0.0.1"
 
-        # Mock update_dns_record to avoid actual API calls
-        self.manager.update_dns_record = lambda domain, subdomain, record_type, ip: True
+        # Mock update_dns_record to return a status string
+        self.manager.update_dns_record = lambda domain, subdomain, record_type, ip: "updated"
 
         # Run the method
         self.manager._execute_cycle()
@@ -127,9 +127,17 @@ class TestDdnsManager:
         # Verify logging
         mock_logger.info.assert_any_call(f"Initial IP address detected", extra={"ip": "127.0.0.1"})
 
+        # Check the updated completion log format
         mock_logger.info.assert_any_call(
             f"DDNS update completed",
-            extra={"updated": 5, "errors": 0, "domains": 2},
+            extra={
+                "domains_processed": 2,
+                "records_updated": 5,
+                "records_created": 0,
+                "records_unchanged": 0,
+                "errors": 0,
+                "total_records": 5,
+            },
         )
 
     @patch("lecf.managers.ddns.logger")
@@ -175,13 +183,13 @@ class TestDdnsManager:
             },
         )
 
-        # Verify result
-        assert result is True
+        # Verify result is the correct status string
+        assert result == "updated"
 
         # Test when IP hasn't changed
         mock_record.content = "192.168.0.2"  # Same as new IP
         result = self.manager.update_dns_record("example.com", "@", "A", "192.168.0.2")
-        assert result is True
+        assert result == "unchanged"
         # Update shouldn't be called again since IP is the same
         mock_cf.update_dns_record.assert_called_once()
 
@@ -203,10 +211,10 @@ class TestDdnsManager:
             },
         )
 
-        # Verify result
-        assert result is True
+        # Verify result is the correct status string
+        assert result == "created"
 
         # Test error handling
         mock_cf.get_zone_id.return_value = (None, None)  # Zone not found
         result = self.manager.update_dns_record("nonexistent.com", "@", "A", "192.168.0.2")
-        assert result is False
+        assert result == "error"

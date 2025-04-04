@@ -167,7 +167,7 @@ class DdnsManager(BaseManager):
         logger.error("Failed to get public IP from all services")
         return None
 
-    def update_dns_record(self, domain: str, subdomain: str, record_type: str, ip: str) -> bool:
+    def update_dns_record(self, domain: str, subdomain: str, record_type: str, ip: str) -> str:
         """
         Update a specific DNS record with the new IP.
 
@@ -178,14 +178,14 @@ class DdnsManager(BaseManager):
             ip: IP address to set
 
         Returns:
-            True if successful, False otherwise
+            Status string: "updated", "created", "unchanged", or "error"
         """
         try:
             # Get zone ID
             zone_id, zone_name = self.cloudflare.get_zone_id(domain)
             if not zone_id:
                 logger.error(f"No zone found for domain", extra={"domain": domain})
-                return False
+                return "error"
 
             # Handle root domain (@) special case
             record_name = domain if subdomain == "@" else f"{subdomain}.{domain}"
@@ -228,11 +228,11 @@ class DdnsManager(BaseManager):
                         f"IP unchanged, skipping update",
                         extra={"record_name": record_name, "ip": ip},
                     )
-                    return True
+                    return "unchanged"
 
                 # Check if the record is proxied (get with fallback to False)
                 proxied = False
-                if hasattr(record_obj, "proxied"):
+                if hasattr(record_obj, 'proxied'):
                     proxied = record_obj.proxied
 
                 record = {
@@ -254,13 +254,13 @@ class DdnsManager(BaseManager):
                         f"Updated DNS record",
                         extra={"record_type": record_type, "record_name": record_name, "ip": ip},
                     )
-                    return True
+                    return "updated"
 
                 logger.error(
                     f"Failed to update DNS record",
                     extra={"record_name": record_name, "record_id": record_id},
                 )
-                return False
+                return "error"
 
             # Create new record
             record = {
@@ -279,10 +279,10 @@ class DdnsManager(BaseManager):
                     f"Created new DNS record",
                     extra={"record_type": record_type, "record_name": record_name, "ip": ip},
                 )
-                return True
+                return "created"
 
             logger.error(f"Failed to create DNS record", extra={"record_name": record_name})
-            return False
+            return "error"
 
         except Exception as e:
             logger.error(
@@ -294,7 +294,7 @@ class DdnsManager(BaseManager):
                     "error_type": type(e).__name__,
                 },
             )
-            return False
+            return "error"
 
     def _execute_cycle(self) -> None:
         """Implement the DDNS update cycle."""
@@ -320,11 +320,18 @@ class DdnsManager(BaseManager):
         else:
             logger.info(f"Initial IP address detected", extra={"ip": ip})
 
-        update_count = 0
-        error_count = 0
-
+        # Track different statuses
+        status_counts = {
+            "updated": 0,
+            "created": 0, 
+            "unchanged": 0,
+            "error": 0
+        }
+        processed_domains = 0
+        
         # Process each domain
         for domain, config in self.domains.items():
+            processed_domains += 1
             logger.debug(
                 f"Processing domain",
                 extra={"domain": domain, "subdomains": config.get("subdomains")},
@@ -336,17 +343,20 @@ class DdnsManager(BaseManager):
             # Update each subdomain
             for subdomain in config.get("subdomains", []):
                 for record_type in record_types:
-                    success = self.update_dns_record(domain, subdomain, record_type, ip)
+                    status = self.update_dns_record(domain, subdomain, record_type, ip)
+                    status_counts[status] += 1
 
-                    if success:
-                        update_count += 1
-                    else:
-                        error_count += 1
-
-        # Log summary
+        # Log summary with detailed stats
         logger.info(
             f"DDNS update completed",
-            extra={"updated": update_count, "errors": error_count, "domains": len(self.domains)},
+            extra={
+                "domains_processed": processed_domains,
+                "records_updated": status_counts["updated"],
+                "records_created": status_counts["created"],
+                "records_unchanged": status_counts["unchanged"],
+                "errors": status_counts["error"],
+                "total_records": sum(status_counts.values()),
+            },
         )
 
         # Track state
